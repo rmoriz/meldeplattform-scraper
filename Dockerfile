@@ -7,16 +7,16 @@ RUN apk add --no-cache \
     xz \
     ca-certificates
 
-# Install Zig
+# Install Zig - use native architecture
 ARG ZIG_VERSION=0.13.0
 ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-aarch64-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt && \
-        ln -s /opt/zig-linux-aarch64-${ZIG_VERSION}/zig /usr/local/bin/zig; \
-    else \
-        curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt && \
-        ln -s /opt/zig-linux-x86_64-${ZIG_VERSION}/zig /usr/local/bin/zig; \
-    fi
+RUN case "${TARGETARCH}" in \
+        "arm64") ZIG_ARCH="aarch64" ;; \
+        "amd64") ZIG_ARCH="x86_64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac && \
+    curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt && \
+    ln -s /opt/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}/zig /usr/local/bin/zig
 
 # Set working directory
 WORKDIR /app
@@ -25,8 +25,8 @@ WORKDIR /app
 COPY build.zig .
 COPY src/ src/
 
-# Build the parallel version
-RUN zig build -Doptimize=ReleaseSafe --verbose
+# Build the parallel version (native compilation)
+RUN zig build -Doptimize=ReleaseSafe
 
 # Production stage
 FROM alpine:3.19
