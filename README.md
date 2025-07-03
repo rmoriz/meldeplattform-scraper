@@ -45,13 +45,30 @@ zig build
 ```bash
 zig build run
 # or
-./zig-out/bin/rss-cache-parser
+./zig-out/bin/rss-cache-parser [OPTIONS]
 ```
 
 **Parallel version (optimized):**
 ```bash
 zig build run-parallel
 # or
+./zig-out/bin/rss-cache-parser-parallel [OPTIONS]
+```
+
+### CLI Options
+
+Both versions support the following command-line options:
+
+```bash
+# Show help
+./zig-out/bin/rss-cache-parser-parallel --help
+./zig-out/bin/rss-cache-parser-parallel -h
+
+# Save JSON output to file
+./zig-out/bin/rss-cache-parser-parallel --output munich_reports.json
+./zig-out/bin/rss-cache-parser-parallel -o data.json
+
+# Default behavior (output to stdout)
 ./zig-out/bin/rss-cache-parser-parallel
 ```
 
@@ -128,12 +145,44 @@ Parallel processing provides significant speedup for RSS feeds with many items:
 - **Automatic fallback** to sequential processing for small workloads
 - **Efficient scaling** up to the number of available CPU cores
 
+## Docker Usage
+
+### Build and Run with Docker
+
+```bash
+# Build the Docker image
+docker build -t meldeplattform-scraper .
+
+# Run with output to stdout
+docker run --rm meldeplattform-scraper
+
+# Save output to file (with volume mount)
+docker run --rm -v $(pwd)/output:/app/output meldeplattform-scraper --output /app/output/munich_reports.json
+
+# Run with docker-compose
+docker-compose up
+
+# Pull from GitHub Container Registry
+docker pull ghcr.io/[username]/meldeplattform-scraper:latest
+```
+
+### Automated Builds
+
+GitHub Actions automatically builds and publishes Docker images to GitHub Container Registry on every push to main branch.
+
 ## Configuration
 
 Key constants can be modified in the source files:
 - `CACHE_EXPIRY_HOURS` in `cache.zig` (default: 24)
 - `RSS_URL` in `main.zig`
 - HTTP timeout and retry settings in `http_client.zig`
+
+### CLI Options Reference
+
+| Option | Short | Description | Example |
+|--------|-------|-------------|---------|
+| `--help` | `-h` | Show usage information | `./scraper -h` |
+| `--output <file>` | `-o <file>` | Save JSON to file instead of stdout | `./scraper -o data.json` |
 
 ## Dependencies
 

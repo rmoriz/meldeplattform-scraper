@@ -23,7 +23,7 @@ pub fn fetchUrlPooled(allocator: Allocator, url: []const u8) ![]u8 {
                 metrics.recordPoolExhaustion();
             }
         }
-        std.debug.print("Failed to get pooled connection: {}\n", .{err});
+        std.io.getStdErr().writer().print("Failed to get pooled connection: {}\n", .{err}) catch {};
         // Fallback to non-pooled request
         const result = try fetchUrlDirect(allocator, url);
         const response_time = @as(u64, @intCast(std.time.milliTimestamp() - start_time));
@@ -70,7 +70,7 @@ fn fetchWithConnection(allocator: Allocator, client: *std.http.Client, uri: std.
     try request.wait();
 
     if (request.response.status != .ok) {
-        std.debug.print("HTTP Error: {}\n", .{request.response.status});
+        std.io.getStdErr().writer().print("HTTP Error: {}\n", .{request.response.status}) catch {};
         return error.HttpError;
     }
 
@@ -88,7 +88,7 @@ pub fn fetchUrlWithRetryPooled(allocator: Allocator, url: []const u8, max_retrie
             if (retries >= max_retries) {
                 return err;
             }
-            std.debug.print("Retry {}/{} for URL: {s}\n", .{ retries, max_retries, url });
+            std.io.getStdErr().writer().print("Retry {}/{} for URL: {s}\n", .{ retries, max_retries, url }) catch {};
             std.time.sleep(std.time.ns_per_s * retries); // Exponential backoff
         }
     }
@@ -99,10 +99,10 @@ pub fn fetchUrlWithRetryPooled(allocator: Allocator, url: []const u8, max_retrie
 pub fn printPoolStats() void {
     if (connection_pool.getGlobalPool()) |pool| {
         const stats = pool.getStats();
-        std.debug.print("Connection Pool Stats:\n", .{});
-        std.debug.print("  Total: {}/{}\n", .{ stats.total_connections, stats.max_connections });
-        std.debug.print("  Active: {}\n", .{stats.active_connections});
-        std.debug.print("  Idle: {}\n", .{stats.idle_connections});
+        std.io.getStdErr().writer().print("Connection Pool Stats:\n", .{}) catch {};
+        std.io.getStdErr().writer().print("  Total: {}/{}\n", .{ stats.total_connections, stats.max_connections }) catch {};
+        std.io.getStdErr().writer().print("  Active: {}\n", .{stats.active_connections}) catch {};
+        std.io.getStdErr().writer().print("  Idle: {}\n", .{stats.idle_connections}) catch {};
     }
     
     if (connection_metrics.getGlobalMetrics()) |metrics| {

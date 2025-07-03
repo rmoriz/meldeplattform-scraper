@@ -99,11 +99,11 @@ pub fn ThreadPool(comptime WorkItem: type, comptime Result: type) type {
                 // Release lock while processing
                 self.mutex.unlock();
                 
-                std.debug.print("Worker {}: Processing item {}\n", .{ worker_id, work_item_index + 1 });
+                std.io.getStdErr().writer().print("Worker {}: Processing item {}\n", .{ worker_id, work_item_index + 1 }) catch {};
                 
                 // Process work item
                 const result = self.worker_fn(self.allocator, work_item) catch |err| {
-                    std.debug.print("Worker {}: Error processing item {}: {}\n", .{ worker_id, work_item_index + 1, err });
+                    std.io.getStdErr().writer().print("Worker {}: Error processing item {}: {}\n", .{ worker_id, work_item_index + 1, err }) catch {};
                     self.mutex.lock();
                     continue;
                 };

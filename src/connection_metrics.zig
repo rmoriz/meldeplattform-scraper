@@ -86,14 +86,14 @@ pub const ConnectionMetrics = struct {
     pub fn printStats(self: *Self) void {
         const stats = self.getStats();
         
-        std.debug.print("Connection Metrics:\n", .{});
-        std.debug.print("  Total Requests: {}\n", .{stats.total_requests});
-        std.debug.print("  Pooled: {} ({d:.1}%)\n", .{ stats.pooled_requests, stats.pool_efficiency });
-        std.debug.print("  Direct: {}\n", .{stats.direct_requests});
-        std.debug.print("  Connection Reuses: {} ({d:.1}%)\n", .{ stats.connection_reuses, stats.reuse_rate });
-        std.debug.print("  Pool Exhaustions: {}\n", .{stats.pool_exhaustions});
-        std.debug.print("  Connection Timeouts: {}\n", .{stats.connection_timeouts});
-        std.debug.print("  Avg Response Time: {}ms\n", .{stats.average_response_time_ms});
+        std.io.getStdErr().writer().print("Connection Metrics:\n", .{}) catch {};
+        std.io.getStdErr().writer().print("  Total Requests: {}\n", .{stats.total_requests}) catch {};
+        std.io.getStdErr().writer().print("  Pooled: {} ({d:.1}%)\n", .{ stats.pooled_requests, stats.pool_efficiency }) catch {};
+        std.io.getStdErr().writer().print("  Direct: {}\n", .{stats.direct_requests}) catch {};
+        std.io.getStdErr().writer().print("  Connection Reuses: {} ({d:.1}%)\n", .{ stats.connection_reuses, stats.reuse_rate }) catch {};
+        std.io.getStdErr().writer().print("  Pool Exhaustions: {}\n", .{stats.pool_exhaustions}) catch {};
+        std.io.getStdErr().writer().print("  Connection Timeouts: {}\n", .{stats.connection_timeouts}) catch {};
+        std.io.getStdErr().writer().print("  Avg Response Time: {}ms\n", .{stats.average_response_time_ms}) catch {};
     }
 };
 

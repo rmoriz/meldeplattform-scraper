@@ -23,7 +23,7 @@ pub fn fetchUrl(allocator: Allocator, url: []const u8) ![]u8 {
     try request.wait();
 
     if (request.response.status != .ok) {
-        std.debug.print("HTTP Error: {}\n", .{request.response.status});
+        std.io.getStdErr().writer().print("HTTP Error: {}\n", .{request.response.status}) catch {};
         return error.HttpError;
     }
 
@@ -41,7 +41,7 @@ pub fn fetchUrlWithRetry(allocator: Allocator, url: []const u8, max_retries: u32
             if (retries >= max_retries) {
                 return err;
             }
-            std.debug.print("Retry {}/{} for URL: {s}\n", .{ retries, max_retries, url });
+            std.io.getStdErr().writer().print("Retry {}/{} for URL: {s}\n", .{ retries, max_retries, url }) catch {};
             std.time.sleep(std.time.ns_per_s * retries); // Exponential backoff
         }
     }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const print = std.debug.print;
+const stderr = std.io.getStdErr().writer();
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
@@ -23,12 +24,43 @@ pub fn main() !void {
     defer {
         const leaked = gpa.deinit();
         if (leaked == .leak) {
-            print("Memory leaks detected!\n", .{});
+            stderr.print("Memory leaks detected!\n", .{}) catch {};
         } else {
-            print("No memory leaks detected.\n", .{});
+            stderr.print("No memory leaks detected.\n", .{}) catch {};
         }
     }
     const allocator = gpa.allocator();
+    
+    // Parse command line arguments
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+    
+    var output_file: ?[]const u8 = null;
+    
+    // Parse CLI arguments
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--output") or std.mem.eql(u8, args[i], "-o")) {
+            if (i + 1 >= args.len) {
+                stderr.print("Error: --output requires a filename\n", .{}) catch {};
+                stderr.print("Usage: {s} [--output <filename>]\n", .{args[0]}) catch {};
+                return;
+            }
+            output_file = args[i + 1];
+            i += 1; // Skip the filename argument
+        } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
+            stderr.print("RSS Cache Parser - Sequential Version\n", .{}) catch {};
+            stderr.print("Usage: {s} [OPTIONS]\n", .{args[0]}) catch {};
+            stderr.print("\nOptions:\n", .{}) catch {};
+            stderr.print("  --output, -o <filename>  Save JSON output to file instead of stdout\n", .{}) catch {};
+            stderr.print("  --help, -h               Show this help message\n", .{}) catch {};
+            return;
+        } else {
+            stderr.print("Error: Unknown argument '{s}'\n", .{args[i]}) catch {};
+            stderr.print("Usage: {s} [--output <filename>]\n", .{args[0]}) catch {};
+            return;
+        }
+    }
     
     // Initialize memory pool for temporary allocations
     var pool = memory_pool.MemoryPool.init(allocator);
@@ -39,23 +71,24 @@ pub fn main() !void {
     defer connection_pool.deinitGlobalPool();
     connection_metrics.initGlobalMetrics();
 
-    print("RSS Cache Parser - Starting...\n", .{});
+    stderr.print("RSS Cache Parser - Starting...\n", .{}) catch {};
 
-    // Initialize cache directory
+    // Initialize cache directory and purge old files
     try cache.initCacheDir();
+    try cache.purgeOldCacheFiles();
 
     // Fetch RSS feed using direct HTTP client (avoiding SSL issues)
-    print("Fetching RSS feed from: {s}\n", .{RSS_URL});
+    stderr.print("Fetching RSS feed from: {s}\n", .{RSS_URL}) catch {};
     const rss_content = http_client.fetchUrl(allocator, RSS_URL) catch |err| {
-        print("Error fetching RSS: {}\n", .{err});
+        stderr.print("Error fetching RSS: {}\n", .{err}) catch {};
         return;
     };
     defer allocator.free(rss_content);
 
     // Parse RSS to get item list
-    print("Parsing RSS feed...\n", .{});
+    stderr.print("Parsing RSS feed...\n", .{}) catch {};
     const rss_items = rss_parser.parseRss(allocator, rss_content) catch |err| {
-        print("Error parsing RSS: {}\n", .{err});
+        stderr.print("Error parsing RSS: {}\n", .{err}) catch {};
         return;
     };
     defer {
@@ -65,13 +98,12 @@ pub fn main() !void {
         rss_items.deinit();
     }
 
-    print("Found {} RSS items\n", .{rss_items.items.len});
+    stderr.print("Found {} RSS items\n", .{rss_items.items.len}) catch {};
 
-    // Process items in parallel (limit to first 3 for testing)
-    const items_to_process = rss_items.items[0..@min(3, rss_items.items.len)];
-    print("Processing {} items with {} concurrent workers...\n", .{ items_to_process.len, MAX_CONCURRENT_WORKERS });
+    // Process all items in parallel
+    stderr.print("Processing {} items with {} concurrent workers...\n", .{ rss_items.items.len, MAX_CONCURRENT_WORKERS }) catch {};
     
-    var processed_items = try processItemsParallel(allocator, items_to_process);
+    var processed_items = try processItemsParallel(allocator, rss_items.items);
     defer {
         for (processed_items.items) |item| {
             item.deinit(allocator);
@@ -80,22 +112,38 @@ pub fn main() !void {
     }
 
     // Output as JSON (memory optimized)
-    print("\nGenerating JSON output...\n", .{});
+    stderr.print("\nGenerating JSON output...\n", .{}) catch {};
     const json_str = memory_optimized_json.itemsToJsonOptimized(allocator, processed_items.items) catch |err| {
-        print("Error generating JSON: {}\n", .{err});
+        stderr.print("Error generating JSON: {}\n", .{err}) catch {};
         return;
     };
     defer allocator.free(json_str);
 
-    print("\n=== JSON OUTPUT ===\n", .{});
-    print("{s}\n", .{json_str});
-    print("=== END OUTPUT ===\n", .{});
+    // Write JSON to file or stdout
+    if (output_file) |filename| {
+        const file = std.fs.cwd().createFile(filename, .{}) catch |err| {
+            stderr.print("Error creating output file '{s}': {}\n", .{ filename, err }) catch {};
+            return;
+        };
+        defer file.close();
+        
+        file.writeAll(json_str) catch |err| {
+            stderr.print("Error writing to output file '{s}': {}\n", .{ filename, err }) catch {};
+            return;
+        };
+        
+        stderr.print("JSON output saved to: {s}\n", .{filename}) catch {};
+    } else {
+        // Only JSON goes to stdout
+        const stdout = std.io.getStdOut().writer();
+        stdout.print("{s}\n", .{json_str}) catch {};
+    }
 
-    // Print connection pool statistics
-    print("\n", .{});
+    // Print connection pool statistics to stderr
+    stderr.print("\n", .{}) catch {};
     pooled_http_client.printPoolStats();
     
-    print("\nProcessed {} items successfully\n", .{processed_items.items.len});
+    stderr.print("\nProcessed {} items successfully\n", .{processed_items.items.len}) catch {};
 }
 
 const WorkerContext = struct {
@@ -113,12 +161,12 @@ fn workerThread(context: *WorkerContext) void {
         const rss_item = context.input_items[i];
         
         context.mutex.lock();
-        print("Worker {}: Processing item {} - {s}\n", .{ context.worker_id, i + 1, rss_item.title });
+        stderr.print("Worker {}: Processing item {} - {s}\n", .{ context.worker_id, i + 1, rss_item.title }) catch {};
         context.mutex.unlock();
         
         const processed_item = item_fetcher.processItem(context.allocator, rss_item) catch |err| {
             context.mutex.lock();
-            print("Worker {}: Error processing item {s}: {}\n", .{ context.worker_id, rss_item.title, err });
+            stderr.print("Worker {}: Error processing item {s}: {}\n", .{ context.worker_id, rss_item.title, err }) catch {};
             context.mutex.unlock();
             continue;
         };
@@ -195,10 +243,10 @@ fn processItemsSequential(allocator: Allocator, rss_items: []const rss_parser.Rs
     var processed_items = ArrayList(json_output.ProcessedItem).init(allocator);
     
     for (rss_items, 0..) |rss_item, i| {
-        print("Processing item {} - {s}\n", .{ i + 1, rss_item.title });
+        stderr.print("Processing item {} - {s}\n", .{ i + 1, rss_item.title }) catch {};
         
         const processed_item = item_fetcher.processItem(allocator, rss_item) catch |err| {
-            print("Error processing item {s}: {}\n", .{ rss_item.title, err });
+            stderr.print("Error processing item {s}: {}\n", .{ rss_item.title, err }) catch {};
             continue;
         };
         

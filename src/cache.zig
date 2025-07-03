@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const CACHE_DIR = "cache";
 const CACHE_EXPIRY_HOURS = 24;
+const CACHE_PURGE_DAYS = 7;
 
 pub const CachedItem = struct {
     timestamp: i64,
@@ -24,6 +25,62 @@ pub fn initCacheDir() !void {
         error.PathAlreadyExists => {}, // Directory already exists, that's fine
         else => return err,
     };
+}
+
+pub fn purgeOldCacheFiles() !void {
+    const stderr = std.io.getStdErr().writer();
+    
+    var cache_dir = std.fs.cwd().openDir(CACHE_DIR, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => {
+            // Cache directory doesn't exist, nothing to purge
+            return;
+        },
+        else => return err,
+    };
+    defer cache_dir.close();
+    
+    var iterator = cache_dir.iterate();
+    var purged_count: u32 = 0;
+    var total_count: u32 = 0;
+    
+    const now = std.time.timestamp();
+    const purge_threshold = now - (CACHE_PURGE_DAYS * 24 * 3600); // 7 days in seconds
+    
+    stderr.print("Cache purge: Checking files older than {} days (threshold: {})\n", .{ CACHE_PURGE_DAYS, purge_threshold }) catch {};
+    
+    while (try iterator.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".json")) continue;
+        
+        total_count += 1;
+        
+        const file = cache_dir.openFile(entry.name, .{}) catch |err| {
+            stderr.print("  Warning: Could not open cache file {s}: {}\n", .{ entry.name, err }) catch {};
+            continue;
+        };
+        defer file.close();
+        
+        const stat = file.stat() catch |err| {
+            stderr.print("  Warning: Could not stat cache file {s}: {}\n", .{ entry.name, err }) catch {};
+            continue;
+        };
+        
+        // Convert nanoseconds to seconds for comparison
+        const file_mtime_seconds = @divFloor(stat.mtime, 1_000_000_000);
+        
+        if (file_mtime_seconds < purge_threshold) {
+            stderr.print("  Purging old file: {s} (age: {} seconds)\n", .{ entry.name, now - file_mtime_seconds }) catch {};
+            cache_dir.deleteFile(entry.name) catch |err| {
+                stderr.print("  Warning: Could not delete old cache file {s}: {}\n", .{ entry.name, err }) catch {};
+                continue;
+            };
+            purged_count += 1;
+        }
+    }
+    
+    if (purged_count > 0) {
+        stderr.print("Cache cleanup: Purged {} old files out of {} total cache files\n", .{ purged_count, total_count }) catch {};
+    }
 }
 
 pub fn getCacheFilename(allocator: Allocator, url: []const u8) ![]u8 {

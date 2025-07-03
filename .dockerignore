@@ -1,0 +1,41 @@
+# Build artifacts
+zig-cache/
+zig-out/
+.zig-cache/
+
+# Cache data
+cache/
+*.json
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+Documentation/
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Temporary files
+tmp_*
+*.tmp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+*_test.json
+test_*.py
+benchmark.py

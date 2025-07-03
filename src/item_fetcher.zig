@@ -16,14 +16,16 @@ pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_out
         if (cache.loadFromCache(allocator, cache_filename)) |cached_item| {
             defer cached_item.deinit(allocator);
             
-            std.debug.print("  Using cached data for: {s}\n", .{rss_item.title});
+            std.io.getStdErr().writer().print("  Using cached data for: {s}\n", .{rss_item.title}) catch {};
             
             return json_output.ProcessedItem{
+                .id = json_output.extractIdFromUrl(cached_item.url),
                 .title = try allocator.dupe(u8, cached_item.title),
                 .url = try allocator.dupe(u8, cached_item.url),
                 .pub_date = try allocator.dupe(u8, cached_item.pub_date),
                 .creation_date = try extractCreationDate(allocator, cached_item.html_content, cached_item.pub_date),
                 .address = try extractAddress(allocator, cached_item.html_content),
+                .borough = try extractBorough(allocator, cached_item.html_content),
                 .html_content = try allocator.dupe(u8, cached_item.html_content),
                 .description = try extractDescription(allocator, cached_item.html_content),
                 .cached = true,
@@ -34,10 +36,10 @@ pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_out
     }
     
     // Fetch fresh data
-    std.debug.print("  Fetching fresh data for: {s}\n", .{rss_item.title});
+    std.io.getStdErr().writer().print("  Fetching fresh data for: {s}\n", .{rss_item.title}) catch {};
     
     const html_content = http_client.fetchUrlWithRetry(allocator, rss_item.link, 3) catch |err| {
-        std.debug.print("  Failed to fetch {s}: {}\n", .{ rss_item.link, err });
+        std.io.getStdErr().writer().print("  Failed to fetch {s}: {}\n", .{ rss_item.link, err }) catch {};
         return error.FetchFailed;
     };
     defer allocator.free(html_content);
@@ -53,19 +55,50 @@ pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_out
     defer cached_item.deinit(allocator);
     
     cache.saveToCache(allocator, cache_filename, cached_item) catch |err| {
-        std.debug.print("  Warning: Failed to save cache for {s}: {}\n", .{ rss_item.link, err });
+        std.io.getStdErr().writer().print("  Warning: Failed to save cache for {s}: {}\n", .{ rss_item.link, err }) catch {};
     };
     
     return json_output.ProcessedItem{
+        .id = json_output.extractIdFromUrl(rss_item.link),
         .title = try allocator.dupe(u8, rss_item.title),
         .url = try allocator.dupe(u8, rss_item.link),
         .pub_date = try allocator.dupe(u8, rss_item.pub_date),
         .creation_date = try extractCreationDate(allocator, html_content, rss_item.pub_date),
         .address = try extractAddress(allocator, html_content),
+        .borough = try extractBorough(allocator, html_content),
         .html_content = try allocator.dupe(u8, html_content),
         .description = try extractDescription(allocator, html_content),
         .cached = false,
     };
+}
+
+fn extractBorough(allocator: Allocator, html_content: []const u8) ![]u8 {
+    // Look for "Stadtteil" pattern in HTML - specifically in <dd>Stadtteil Name</dd> format
+    if (std.mem.indexOf(u8, html_content, "Stadtteil ")) |pos| {
+        const after_stadtteil = html_content[pos + 10..]; // "Stadtteil " is 10 chars
+        
+        // Find the end of the borough name (until </dd> or line break)
+        var borough_end: usize = 0;
+        while (borough_end < after_stadtteil.len and borough_end < 150) {
+            const char = after_stadtteil[borough_end];
+            
+            if (char == '<' or char == '\n' or char == '\r') {
+                break;
+            }
+            
+            borough_end += 1;
+        }
+        
+        if (borough_end > 3) { // Minimum borough name length
+            const potential_borough = std.mem.trim(u8, after_stadtteil[0..borough_end], " \t\r\n");
+            if (potential_borough.len > 3) {
+                return allocator.dupe(u8, potential_borough);
+            }
+        }
+    }
+    
+    // Fallback: return empty string if no borough found
+    return allocator.dupe(u8, "");
 }
 
 fn extractAddress(allocator: Allocator, html_content: []const u8) ![]u8 {
@@ -102,7 +135,10 @@ fn extractAddress(allocator: Allocator, html_content: []const u8) ![]u8 {
             if (address_end > address_start + 5) {
                 const potential_address = std.mem.trim(u8, after_pattern[address_start..address_end], " \t\r\n,.");
                 if (potential_address.len > 5) {
-                    return allocator.dupe(u8, potential_address);
+                    // Clean up the address by removing trailing "München, Germany" and leading ": "
+                    var cleaned_address = cleanAddress(potential_address);
+                    cleaned_address = removeLeadingColon(cleaned_address);
+                    return allocator.dupe(u8, cleaned_address);
                 }
             }
         }
@@ -110,6 +146,36 @@ fn extractAddress(allocator: Allocator, html_content: []const u8) ![]u8 {
     
     // Fallback: return empty string if no address found
     return allocator.dupe(u8, "");
+}
+
+fn cleanAddress(address: []const u8) []const u8 {
+    // Remove trailing "München, Germany" or similar patterns
+    const patterns_to_remove = [_][]const u8{
+        ", Germany",
+        " Germany"
+    };
+    
+    var cleaned = address;
+    
+    for (patterns_to_remove) |pattern| {
+        if (std.mem.endsWith(u8, cleaned, pattern)) {
+            cleaned = cleaned[0..cleaned.len - pattern.len];
+            break; // Only remove one pattern to avoid over-cleaning
+        }
+    }
+    
+    return std.mem.trim(u8, cleaned, " \t\r\n,.");
+}
+
+fn removeLeadingColon(address: []const u8) []const u8 {
+    // Remove leading ": " from address
+    if (std.mem.startsWith(u8, address, ": ")) {
+        return address[2..];
+    } else if (std.mem.startsWith(u8, address, ":")) {
+        return address[1..];
+    }
+    
+    return address;
 }
 
 fn extractDescription(allocator: Allocator, html_content: []const u8) ![]u8 {
@@ -147,6 +213,7 @@ fn extractCleanTextFromArea(allocator: Allocator, html_area: []const u8, min_len
     defer result.deinit();
     
     var in_tag = false;
+    var in_attribution = false;
     var char_count: usize = 0;
     var i: usize = 0;
     
@@ -155,9 +222,27 @@ fn extractCleanTextFromArea(allocator: Allocator, html_area: []const u8, min_len
         
         if (char == '<') {
             in_tag = true;
+            
+            // Check if this is the start of an ol-attribution tag
+            if (i + 20 < html_area.len) {
+                const tag_preview = html_area[i..i + 20];
+                if (std.mem.indexOf(u8, tag_preview, "class=\"ol-attribution\"")) |_| {
+                    in_attribution = true;
+                }
+            }
         } else if (char == '>') {
             in_tag = false;
-        } else if (!in_tag) {
+            
+            // Check if we're closing an ol-attribution tag
+            if (in_attribution and i >= 20) {
+                const before_tag = html_area[i-20..i];
+                if (std.mem.indexOf(u8, before_tag, "</")) |_| {
+                    if (std.mem.indexOf(u8, before_tag, "ol-attribution")) |_| {
+                        in_attribution = false;
+                    }
+                }
+            }
+        } else if (!in_tag and !in_attribution) {
             if (char == '\n' or char == '\r' or char == '\t') {
                 if (result.items.len > 0 and result.items[result.items.len - 1] != ' ') {
                     try result.append(' ');
@@ -172,10 +257,11 @@ fn extractCleanTextFromArea(allocator: Allocator, html_area: []const u8, min_len
         i += 1;
     }
     
-    // Clean up the result
+    // Clean up the result and format municipal responses
     const text = std.mem.trim(u8, result.items, " \t\r\n");
     if (text.len >= min_length) {
-        return try allocator.dupe(u8, text);
+        const formatted_text = try formatMunicipalResponse(allocator, text);
+        return formatted_text;
     }
     
     return null;
@@ -477,4 +563,112 @@ fn extractTextContent(allocator: Allocator, html_content: []const u8, max_length
     }
     
     return result.toOwnedSlice();
+}
+
+fn formatMunicipalResponse(allocator: Allocator, text: []const u8) ![]u8 {
+    // First, filter out unwanted footer content
+    const filtered_text = try filterUnwantedContent(allocator, text);
+    defer allocator.free(filtered_text);
+    
+    // Look for "Antwort von Landeshauptstadt" and inject an empty line before it
+    if (std.mem.indexOf(u8, filtered_text, "Antwort von Landeshauptstadt")) |pos| {
+        // Look backwards to see if we need to add spacing
+        var needs_spacing = true;
+        if (pos >= 2) {
+            // Check if there are already line breaks before the response
+            const before_response = filtered_text[pos-2..pos];
+            if (std.mem.eql(u8, before_response, "\n\n") or 
+                std.mem.eql(u8, before_response, "  ")) {
+                needs_spacing = false;
+            }
+        }
+        
+        if (needs_spacing) {
+            // Create new text with proper spacing
+            var result = std.ArrayList(u8).init(allocator);
+            defer result.deinit();
+            
+            // Add text before the response
+            try result.appendSlice(filtered_text[0..pos]);
+            
+            // Add empty line before municipal response
+            try result.appendSlice("\n\nAntwort von Landeshauptstadt");
+            
+            // Add the rest of the text after "Antwort von Landeshauptstadt"
+            const response_start = pos + "Antwort von Landeshauptstadt".len;
+            if (response_start < filtered_text.len) {
+                try result.appendSlice(filtered_text[response_start..]);
+            }
+            
+            return result.toOwnedSlice();
+        }
+    }
+    
+    // No formatting needed, return filtered text
+    return allocator.dupe(u8, filtered_text);
+}
+
+fn filterUnwantedContent(allocator: Allocator, text: []const u8) ![]u8 {
+    // List of unwanted patterns to filter out
+    const unwanted_patterns = [_][]const u8{
+        "Meldungsposition",
+        "OpenStreetMap-Mitwirkende",
+        "Hauskoordinaten:",
+        "Bayrische Vermessungsverwaltung",
+        "OpenStreetMap",
+        "&middot;",
+        "Nr.836",
+        "\"group\":\"Karten\"",
+        "\"url\":\"https://map1.mvv-muenchen.de",
+        "\"visible\":1",
+        "\"crossorigin\":0",
+        "\"type\"",
+    };
+    
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
+    
+    var i: usize = 0;
+    while (i < text.len) {
+        var found_unwanted = false;
+        
+        // Check if any unwanted pattern starts at current position
+        for (unwanted_patterns) |pattern| {
+            if (i + pattern.len <= text.len and std.mem.startsWith(u8, text[i..], pattern)) {
+                // Found unwanted pattern, skip to end of line or find a good stopping point
+                while (i < text.len and text[i] != '\n') {
+                    i += 1;
+                }
+                found_unwanted = true;
+                break;
+            }
+        }
+        
+        if (!found_unwanted) {
+            try result.append(text[i]);
+            i += 1;
+        }
+    }
+    
+    // Clean up any trailing whitespace and multiple newlines
+    const cleaned = std.mem.trim(u8, result.items, " \t\r\n");
+    
+    // Remove multiple consecutive spaces and newlines
+    var final_result = std.ArrayList(u8).init(allocator);
+    defer final_result.deinit();
+    
+    var prev_was_space = false;
+    for (cleaned) |char| {
+        if (char == ' ' or char == '\t' or char == '\r' or char == '\n') {
+            if (!prev_was_space) {
+                try final_result.append(' ');
+                prev_was_space = true;
+            }
+        } else {
+            try final_result.append(char);
+            prev_was_space = false;
+        }
+    }
+    
+    return final_result.toOwnedSlice();
 }

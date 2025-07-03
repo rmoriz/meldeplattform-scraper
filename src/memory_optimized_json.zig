@@ -20,11 +20,13 @@ pub fn itemsToJsonOptimized(allocator: Allocator, items: []const json_output.Pro
         try writer.writeAll("  {\n");
         
         // Write each field manually to avoid JSON object allocations
+        try writeJsonFieldInt(writer, "id", item.id, true);
         try writeJsonField(writer, "title", item.title, true);
         try writeJsonField(writer, "url", item.url, true);
         try writeJsonField(writer, "pub_date", item.pub_date, true);
         try writeJsonField(writer, "creation_date", item.creation_date, true);
         try writeJsonField(writer, "address", item.address, true);
+        try writeJsonField(writer, "borough", item.borough, true);
         try writeJsonField(writer, "description", item.description, true);
         try writeJsonFieldBool(writer, "cached", item.cached, true);
         try writeJsonFieldInt(writer, "html_length", item.html_content.len, false);
@@ -67,7 +69,7 @@ fn writeJsonFieldBool(writer: anytype, key: []const u8, value: bool, comma: bool
     try writer.writeByte('\n');
 }
 
-fn writeJsonFieldInt(writer: anytype, key: []const u8, value: usize, comma: bool) !void {
+fn writeJsonFieldInt(writer: anytype, key: []const u8, value: anytype, comma: bool) !void {
     try writer.print("    \"{s}\": {}", .{ key, value });
     if (comma) {
         try writer.writeByte(',');

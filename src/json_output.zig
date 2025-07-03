@@ -2,12 +2,23 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
+pub fn extractIdFromUrl(url: []const u8) u32 {
+    // Extract ID from URLs like https://meldeplattform-rad.muenchenunterwegs.de/bms/2033957
+    if (std.mem.lastIndexOf(u8, url, "/")) |last_slash_pos| {
+        const id_str = url[last_slash_pos + 1..];
+        return std.fmt.parseInt(u32, id_str, 10) catch 0;
+    }
+    return 0;
+}
+
 pub const ProcessedItem = struct {
+    id: u32,
     title: []u8,
     url: []u8,
     pub_date: []u8,
     creation_date: []u8,
     address: []u8,
+    borough: []u8,
     html_content: []u8,
     description: []u8,
     cached: bool,
@@ -18,6 +29,7 @@ pub const ProcessedItem = struct {
         allocator.free(self.pub_date);
         allocator.free(self.creation_date);
         allocator.free(self.address);
+        allocator.free(self.borough);
         allocator.free(self.html_content);
         allocator.free(self.description);
     }
@@ -34,6 +46,7 @@ pub fn itemsToJson(allocator: Allocator, items: []const ProcessedItem) ![]u8 {
     for (items) |item| {
         var json_obj = std.json.ObjectMap.init(arena_allocator);
         
+        try json_obj.put("id", std.json.Value{ .integer = @intCast(item.id) });
         try json_obj.put("title", std.json.Value{ .string = item.title });
         try json_obj.put("url", std.json.Value{ .string = item.url });
         try json_obj.put("pub_date", std.json.Value{ .string = item.pub_date });
