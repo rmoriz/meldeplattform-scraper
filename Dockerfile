@@ -26,10 +26,15 @@ COPY build.zig .
 COPY src/ src/
 
 # Build the parallel version (native compilation)
-# Use timeout to prevent hanging builds
-RUN timeout 600 zig build -Doptimize=ReleaseSafe || \
-    (echo "Build timed out, trying with reduced optimization" && \
-     timeout 300 zig build -Doptimize=ReleaseSmall)
+# Use simpler optimization for ARM64 to avoid hanging
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        echo "Building for ARM64 with ReleaseSmall optimization" && \
+        zig build -Doptimize=ReleaseSmall; \
+    else \
+        echo "Building for AMD64 with ReleaseSafe optimization" && \
+        zig build -Doptimize=ReleaseSafe; \
+    fi
 
 # Production stage
 FROM alpine:3.19
