@@ -1,0 +1,480 @@
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const rss_parser = @import("rss_parser.zig");
+const http_client = @import("http_client.zig");
+const pooled_http_client = @import("pooled_http_client.zig");
+const cache = @import("cache.zig");
+const json_output = @import("json_output.zig");
+
+pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_output.ProcessedItem {
+    const cache_filename = try cache.getCacheFilename(allocator, rss_item.link);
+    defer allocator.free(cache_filename);
+    
+    // Check if we have valid cached data
+    if (cache.isCacheValid(cache_filename)) {
+        if (cache.loadFromCache(allocator, cache_filename)) |cached_item| {
+            defer cached_item.deinit(allocator);
+            
+            std.debug.print("  Using cached data for: {s}\n", .{rss_item.title});
+            
+            return json_output.ProcessedItem{
+                .title = try allocator.dupe(u8, cached_item.title),
+                .url = try allocator.dupe(u8, cached_item.url),
+                .pub_date = try allocator.dupe(u8, cached_item.pub_date),
+                .creation_date = try extractCreationDate(allocator, cached_item.html_content, cached_item.pub_date),
+                .address = try extractAddress(allocator, cached_item.html_content),
+                .html_content = try allocator.dupe(u8, cached_item.html_content),
+                .description = try extractDescription(allocator, cached_item.html_content),
+                .cached = true,
+            };
+        } else |_| {
+            // Cache load failed, fall through to fetch
+        }
+    }
+    
+    // Fetch fresh data
+    std.debug.print("  Fetching fresh data for: {s}\n", .{rss_item.title});
+    
+    const html_content = http_client.fetchUrlWithRetry(allocator, rss_item.link, 3) catch |err| {
+        std.debug.print("  Failed to fetch {s}: {}\n", .{ rss_item.link, err });
+        return error.FetchFailed;
+    };
+    defer allocator.free(html_content);
+    
+    // Create cached item and save it
+    const cached_item = cache.CachedItem{
+        .timestamp = std.time.timestamp(),
+        .url = try allocator.dupe(u8, rss_item.link),
+        .html_content = try allocator.dupe(u8, html_content),
+        .title = try allocator.dupe(u8, rss_item.title),
+        .pub_date = try allocator.dupe(u8, rss_item.pub_date),
+    };
+    defer cached_item.deinit(allocator);
+    
+    cache.saveToCache(allocator, cache_filename, cached_item) catch |err| {
+        std.debug.print("  Warning: Failed to save cache for {s}: {}\n", .{ rss_item.link, err });
+    };
+    
+    return json_output.ProcessedItem{
+        .title = try allocator.dupe(u8, rss_item.title),
+        .url = try allocator.dupe(u8, rss_item.link),
+        .pub_date = try allocator.dupe(u8, rss_item.pub_date),
+        .creation_date = try extractCreationDate(allocator, html_content, rss_item.pub_date),
+        .address = try extractAddress(allocator, html_content),
+        .html_content = try allocator.dupe(u8, html_content),
+        .description = try extractDescription(allocator, html_content),
+        .cached = false,
+    };
+}
+
+fn extractAddress(allocator: Allocator, html_content: []const u8) ![]u8 {
+    // Look for "autom. ermittelt:" pattern - this is the main pattern for Munich platform
+    if (std.mem.indexOf(u8, html_content, "autom. ermittelt:")) |pos| {
+        const after_pattern = html_content[pos + 16..]; // "autom. ermittelt:" is 16 chars
+        
+        // Skip whitespace
+        var i: usize = 0;
+        while (i < after_pattern.len and i < 50) {
+            const char = after_pattern[i];
+            if (char == ' ' or char == '\t' or char == '\n' or char == '\r') {
+                i += 1;
+                continue;
+            }
+            break;
+        }
+        
+        if (i < after_pattern.len) {
+            const address_start = i;
+            var address_end = address_start;
+            
+            // Extract until we hit a closing parenthesis, line break, or HTML tag
+            while (address_end < after_pattern.len and address_end < address_start + 200) {
+                const addr_char = after_pattern[address_end];
+                
+                if (addr_char == ')' or addr_char == '\n' or addr_char == '\r' or addr_char == '<') {
+                    break;
+                }
+                
+                address_end += 1;
+            }
+            
+            if (address_end > address_start + 5) {
+                const potential_address = std.mem.trim(u8, after_pattern[address_start..address_end], " \t\r\n,.");
+                if (potential_address.len > 5) {
+                    return allocator.dupe(u8, potential_address);
+                }
+            }
+        }
+    }
+    
+    // Fallback: return empty string if no address found
+    return allocator.dupe(u8, "");
+}
+
+fn extractDescription(allocator: Allocator, html_content: []const u8) ![]u8 {
+    // Extract the actual report description from the messagetext-detail class
+    if (std.mem.indexOf(u8, html_content, "class=\"messagetext-detail\"")) |pos| {
+        const after_class = html_content[pos..];
+        
+        // Find the opening tag end
+        if (std.mem.indexOf(u8, after_class, ">")) |tag_end| {
+            const content_start = pos + tag_end + 1;
+            
+            // Find the closing div - look for </div>
+            const search_area = html_content[content_start..@min(content_start + 2000, html_content.len)];
+            
+            if (try extractCleanTextFromArea(allocator, search_area, 50, 1000)) |text| {
+                if (text.len > 50) {
+                    return text;
+                }
+                allocator.free(text);
+            }
+        }
+    }
+    
+    // Fallback: look for meaningful paragraphs
+    if (try extractMeaningfulParagraph(allocator, html_content)) |content| {
+        return content;
+    }
+    
+    // Last resort: extract general text content
+    return extractTextContent(allocator, html_content, 500);
+}
+
+fn extractCleanTextFromArea(allocator: Allocator, html_area: []const u8, min_length: usize, max_length: usize) !?[]u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
+    
+    var in_tag = false;
+    var char_count: usize = 0;
+    var i: usize = 0;
+    
+    while (i < html_area.len and char_count < max_length) {
+        const char = html_area[i];
+        
+        if (char == '<') {
+            in_tag = true;
+        } else if (char == '>') {
+            in_tag = false;
+        } else if (!in_tag) {
+            if (char == '\n' or char == '\r' or char == '\t') {
+                if (result.items.len > 0 and result.items[result.items.len - 1] != ' ') {
+                    try result.append(' ');
+                    char_count += 1;
+                }
+            } else if (char != ' ' or (result.items.len > 0 and result.items[result.items.len - 1] != ' ')) {
+                try result.append(char);
+                char_count += 1;
+            }
+        }
+        
+        i += 1;
+    }
+    
+    // Clean up the result
+    const text = std.mem.trim(u8, result.items, " \t\r\n");
+    if (text.len >= min_length) {
+        return try allocator.dupe(u8, text);
+    }
+    
+    return null;
+}
+
+fn extractMeaningfulParagraph(allocator: Allocator, html: []const u8) !?[]u8 {
+    var search_pos: usize = 0;
+    
+    while (std.mem.indexOfPos(u8, html, search_pos, "<p")) |p_start| {
+        if (std.mem.indexOfPos(u8, html, p_start, ">")) |tag_end| {
+            const content_start = tag_end + 1;
+            
+            if (std.mem.indexOfPos(u8, html, content_start, "</p>")) |p_end| {
+                const paragraph_content = html[content_start..p_end];
+                
+                if (try extractCleanTextFromArea(allocator, paragraph_content, 50, 800)) |text| {
+                    if (text.len > 50 and !isNavigationText(text)) {
+                        return text;
+                    }
+                    allocator.free(text);
+                }
+                
+                search_pos = p_end + 4;
+            } else {
+                search_pos = content_start;
+            }
+        } else {
+            search_pos = p_start + 2;
+        }
+    }
+    return null;
+}
+
+fn isNavigationText(text: []const u8) bool {
+    const nav_words = [_][]const u8{
+        "Home", "Menu", "Login", "Anmelden", "Registrieren", 
+        "Impressum", "Datenschutz", "Support", "Navigation"
+    };
+    
+    for (nav_words) |word| {
+        if (std.mem.indexOf(u8, text, word) != null) {
+            return true;
+        }
+    }
+    
+    return text.len < 30;
+}
+
+fn extractCreationDate(allocator: Allocator, html_content: []const u8, fallback_date: []const u8) ![]u8 {
+    // Look for "Diese Meldung wurde am DD.MM.YYYY via api erstellt" pattern
+    if (extractDateFromMeldungPattern(html_content)) |date| {
+        return allocator.dupe(u8, date);
+    }
+    
+    // Look for "wurde am" patterns
+    if (extractDateFromLabel(html_content, "wurde am")) |date| {
+        return allocator.dupe(u8, date);
+    }
+    
+    // Look for date in title
+    if (extractDateFromTitle(html_content)) |date| {
+        return allocator.dupe(u8, date);
+    }
+    
+    // Fallback: Parse publication date from RSS and format it
+    if (parseAndFormatDate(allocator, fallback_date)) |formatted_date| {
+        return formatted_date;
+    } else |_| {
+        return allocator.dupe(u8, fallback_date);
+    }
+}
+
+fn extractDateFromMeldungPattern(html: []const u8) ?[]const u8 {
+    const patterns = [_][]const u8{
+        "Diese Meldung wurde am",
+        "wurde am"
+    };
+    
+    for (patterns) |pattern| {
+        if (std.mem.indexOf(u8, html, pattern)) |pos| {
+            const after_pattern = html[pos + pattern.len..];
+            
+            var i: usize = 0;
+            while (i < after_pattern.len and i < 50) {
+                const char = after_pattern[i];
+                
+                if (char == ' ' or char == '\t' or char == '\n' or char == '\r') {
+                    i += 1;
+                    continue;
+                }
+                
+                if (std.ascii.isDigit(char)) {
+                    const date_start = i;
+                    var date_end = date_start;
+                    
+                    while (date_end < after_pattern.len and date_end < date_start + 10) {
+                        const date_char = after_pattern[date_end];
+                        if (std.ascii.isDigit(date_char) or date_char == '.') {
+                            date_end += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    if (date_end == date_start + 10) {
+                        const potential_date = after_pattern[date_start..date_end];
+                        if (isValidDate(potential_date)) {
+                            return potential_date;
+                        }
+                    }
+                }
+                i += 1;
+            }
+        }
+    }
+    return null;
+}
+
+fn extractDateFromLabel(html: []const u8, label: []const u8) ?[]const u8 {
+    if (std.mem.indexOf(u8, html, label)) |pos| {
+        const after_label = html[pos + label.len..];
+        
+        var i: usize = 0;
+        while (i < after_label.len and i < 200) {
+            const char = after_label[i];
+            
+            if (char == ' ' or char == '\t' or char == '\n' or char == '\r' or 
+                char == '<' or char == '>') {
+                i += 1;
+                continue;
+            }
+            
+            if (std.ascii.isDigit(char)) {
+                const date_start = i;
+                var date_end = date_start;
+                
+                while (date_end < after_label.len and date_end < date_start + 15) {
+                    const date_char = after_label[date_end];
+                    if (std.ascii.isDigit(date_char) or date_char == '.' or 
+                        date_char == '/' or date_char == '-') {
+                        date_end += 1;
+                    } else {
+                        break;
+                    }
+                }
+                
+                if (date_end > date_start + 7) {
+                    const potential_date = std.mem.trim(u8, after_label[date_start..date_end], " \t\r\n");
+                    if (isValidDate(potential_date)) {
+                        return potential_date;
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+    return null;
+}
+
+fn isValidDate(date_str: []const u8) bool {
+    if (date_str.len != 10) return false;
+    
+    if (std.ascii.isDigit(date_str[0]) and std.ascii.isDigit(date_str[1]) and date_str[2] == '.' and
+        std.ascii.isDigit(date_str[3]) and std.ascii.isDigit(date_str[4]) and date_str[5] == '.' and
+        std.ascii.isDigit(date_str[6]) and std.ascii.isDigit(date_str[7]) and 
+        std.ascii.isDigit(date_str[8]) and std.ascii.isDigit(date_str[9])) {
+        
+        const day = (date_str[0] - '0') * 10 + (date_str[1] - '0');
+        const month = (date_str[3] - '0') * 10 + (date_str[4] - '0');
+        
+        return day >= 1 and day <= 31 and month >= 1 and month <= 12;
+    }
+    
+    return false;
+}
+
+fn extractDateFromTitle(html: []const u8) ?[]const u8 {
+    if (extractHtmlTag(html, "title")) |title| {
+        if (title.len >= 10) {
+            const potential_date = title[0..10];
+            if (isValidDate(potential_date)) {
+                return potential_date;
+            }
+        }
+        
+        var i: usize = 0;
+        while (i < title.len and i < title.len - 9) {
+            if (std.ascii.isDigit(title[i])) {
+                const potential_date = title[i..@min(i + 10, title.len)];
+                if (potential_date.len == 10 and isValidDate(potential_date)) {
+                    return potential_date;
+                }
+            }
+            i += 1;
+        }
+    }
+    return null;
+}
+
+fn parseAndFormatDate(allocator: Allocator, rss_date: []const u8) ![]u8 {
+    if (rss_date.len < 16) return error.InvalidDate;
+    
+    if (std.mem.indexOf(u8, rss_date, ", ")) |comma_pos| {
+        const after_comma = rss_date[comma_pos + 2..];
+        
+        var day_end: usize = 0;
+        while (day_end < after_comma.len and std.ascii.isDigit(after_comma[day_end])) {
+            day_end += 1;
+        }
+        
+        if (day_end == 0) return error.InvalidDate;
+        const day = after_comma[0..day_end];
+        
+        if (day_end + 1 < after_comma.len) {
+            const month_start = day_end + 1;
+            var month_end = month_start;
+            while (month_end < after_comma.len and after_comma[month_end] != ' ') {
+                month_end += 1;
+            }
+            
+            if (month_end > month_start) {
+                const month_name = after_comma[month_start..month_end];
+                const month_num = getMonthNumber(month_name);
+                
+                if (month_end + 1 < after_comma.len) {
+                    const year_start = month_end + 1;
+                    var year_end = year_start;
+                    while (year_end < after_comma.len and std.ascii.isDigit(after_comma[year_end])) {
+                        year_end += 1;
+                    }
+                    
+                    if (year_end > year_start and year_end - year_start == 4) {
+                        const year = after_comma[year_start..year_end];
+                        return std.fmt.allocPrint(allocator, "{s:0>2}.{d:0>2}.{s}", .{ day, month_num, year });
+                    }
+                }
+            }
+        }
+    }
+    
+    return error.InvalidDate;
+}
+
+fn getMonthNumber(month_name: []const u8) u8 {
+    const months = [_][]const u8{
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    };
+    
+    for (months, 0..) |month, i| {
+        if (std.mem.eql(u8, month_name, month)) {
+            return @intCast(i + 1);
+        }
+    }
+    
+    return 1;
+}
+
+fn extractHtmlTag(html: []const u8, tag: []const u8) ?[]const u8 {
+    const open_tag = std.fmt.allocPrint(std.heap.page_allocator, "<{s}", .{tag}) catch return null;
+    defer std.heap.page_allocator.free(open_tag);
+    const close_tag = std.fmt.allocPrint(std.heap.page_allocator, "</{s}>", .{tag}) catch return null;
+    defer std.heap.page_allocator.free(close_tag);
+    
+    if (std.mem.indexOf(u8, html, open_tag)) |start_pos| {
+        if (std.mem.indexOf(u8, html[start_pos..], ">")) |tag_end| {
+            const content_start = start_pos + tag_end + 1;
+            if (std.mem.indexOf(u8, html[content_start..], close_tag)) |end_pos| {
+                return html[content_start..content_start + end_pos];
+            }
+        }
+    }
+    return null;
+}
+
+fn extractTextContent(allocator: Allocator, html_content: []const u8, max_length: usize) ![]u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
+    
+    var in_tag = false;
+    var char_count: usize = 0;
+    
+    for (html_content) |char| {
+        if (char == '<') {
+            in_tag = true;
+        } else if (char == '>') {
+            in_tag = false;
+        } else if (!in_tag and char_count < max_length) {
+            if (char != '\n' and char != '\r' and char != '\t') {
+                try result.append(char);
+                char_count += 1;
+            } else if (result.items.len > 0 and result.items[result.items.len - 1] != ' ') {
+                try result.append(' ');
+                char_count += 1;
+            }
+        }
+        
+        if (char_count >= max_length) break;
+    }
+    
+    return result.toOwnedSlice();
+}

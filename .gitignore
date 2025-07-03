@@ -1,0 +1,73 @@
+# Zig build artifacts
+zig-cache/
+zig-out/
+.zig-cache/
+
+# Cache directory (contains downloaded RSS item data)
+cache/
+
+# Temporary files
+tmp_*
+tmp_rovodev_*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vim/
+
+# Log files
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Compiled binaries
+rss-cache-parser
+rss-cache-parser.exe
+rss-cache-parser-parallel
+rss-cache-parser-parallel.exe
+
+# Test output
+test-output/
+benchmark-results/
+
+# Documentation build artifacts
+docs/_build/
+docs/build/
+
+# Package manager files (if using)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Python virtual environment (for testing scripts)
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Coverage reports
+coverage/
+*.coverage
+
+# Profiling data
+*.prof
