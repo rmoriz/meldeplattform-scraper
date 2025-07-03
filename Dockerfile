@@ -26,7 +26,10 @@ COPY build.zig .
 COPY src/ src/
 
 # Build the parallel version (native compilation)
-RUN zig build -Doptimize=ReleaseSafe
+# Use timeout to prevent hanging builds
+RUN timeout 600 zig build -Doptimize=ReleaseSafe || \
+    (echo "Build timed out, trying with reduced optimization" && \
+     timeout 300 zig build -Doptimize=ReleaseSmall)
 
 # Production stage
 FROM alpine:3.19
