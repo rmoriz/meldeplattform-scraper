@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const CACHE_DIR = "cache";
-const CACHE_EXPIRY_HOURS = 24;
+const CACHE_EXPIRY_HOURS = 24 * 7; // 7 days
 const CACHE_PURGE_DAYS = 7;
 
 pub const CachedItem = struct {

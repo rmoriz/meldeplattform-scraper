@@ -83,7 +83,7 @@ python3 benchmark.py
 2. **Caching Strategy**: 
    - Uses SHA-256 hash of URL as cache filename
    - Stores cached data as JSON with timestamp
-   - Checks file modification time for 24-hour expiration
+   - Checks file modification time for 7-day expiration
 3. **HTML Processing**: 
    - Fetches individual item HTML pages
    - Extracts meaningful content (meta description, title, paragraphs)
@@ -130,7 +130,7 @@ The final JSON output contains an array of processed items:
 
 - **Parallel Processing**: Multi-threaded execution with configurable worker count
 - **Memory Management**: Uses arena allocators for temporary data, explicit cleanup
-- **Caching**: Reduces network load with 24-hour cache expiration
+- **Caching**: Reduces network load with 7-day cache expiration
 - **Thread Safety**: Mutex-protected operations for concurrent access
 - **Load Balancing**: Optimal work distribution across worker threads
 - **Resource Limits**: Configurable limits for HTTP response sizes
@@ -173,7 +173,7 @@ GitHub Actions automatically builds and publishes Docker images to GitHub Contai
 ## Configuration
 
 Key constants can be modified in the source files:
-- `CACHE_EXPIRY_HOURS` in `cache.zig` (default: 24)
+- `CACHE_EXPIRY_HOURS` in `cache.zig` (default: 168 hours / 7 days)
 - `RSS_URL` in `main.zig`
 - HTTP timeout and retry settings in `http_client.zig`
 
