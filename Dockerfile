@@ -9,8 +9,14 @@ RUN apk add --no-cache \
 
 # Install Zig
 ARG ZIG_VERSION=0.13.0
-RUN curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt && \
-    ln -s /opt/zig-linux-x86_64-${ZIG_VERSION}/zig /usr/local/bin/zig
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-aarch64-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt && \
+        ln -s /opt/zig-linux-aarch64-${ZIG_VERSION}/zig /usr/local/bin/zig; \
+    else \
+        curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt && \
+        ln -s /opt/zig-linux-x86_64-${ZIG_VERSION}/zig /usr/local/bin/zig; \
+    fi
 
 # Set working directory
 WORKDIR /app
@@ -20,7 +26,7 @@ COPY build.zig .
 COPY src/ src/
 
 # Build the parallel version
-RUN zig build -Doptimize=ReleaseFast
+RUN zig build -Doptimize=ReleaseSafe --verbose
 
 # Production stage
 FROM alpine:3.19
