@@ -1,3 +1,6 @@
+// Licensed under the Open Software License version 3.0
+// See LICENSE file for details
+
 const std = @import("std");
 const print = std.debug.print;
 const stderr = std.io.getStdErr().writer();

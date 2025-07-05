@@ -570,7 +570,89 @@ fn formatMunicipalResponse(allocator: Allocator, text: []const u8) ![]u8 {
     const filtered_text = try filterUnwantedContent(allocator, text);
     defer allocator.free(filtered_text);
     
-    // Look for "Antwort von Landeshauptstadt" and inject an empty line before it
+    // Look for "Antwort von Landeshauptstadt München" and add proper formatting
+    if (std.mem.indexOf(u8, filtered_text, "Antwort von Landeshauptstadt München")) |pos| {
+        const response_phrase = "Antwort von Landeshauptstadt München";
+        const response_end = pos + response_phrase.len;
+        
+        // Check if already properly formatted (with newlines before and ":\n\n" after)
+        var already_formatted = false;
+        if (response_end + 3 <= filtered_text.len) {
+            const after_response = filtered_text[response_end..response_end + 3];
+            if (std.mem.eql(u8, after_response, ":\n\n")) {
+                // Check if there are proper newlines before as well
+                if (pos >= 2) {
+                    const before_response = filtered_text[pos-2..pos];
+                    if (std.mem.eql(u8, before_response, "\n\n")) {
+                        already_formatted = true;
+                    }
+                }
+            }
+        }
+        
+        if (already_formatted) {
+            return allocator.dupe(u8, filtered_text);
+        }
+        
+        // Create new text with proper formatting
+        var result = std.ArrayList(u8).init(allocator);
+        defer result.deinit();
+        
+        // Check if we need to add newlines before the response
+        var needs_newlines_before = true;
+        if (pos >= 2) {
+            const before_response = filtered_text[pos-2..pos];
+            if (std.mem.eql(u8, before_response, "\n\n") or 
+                std.mem.eql(u8, before_response, ". ") or
+                std.mem.eql(u8, before_response, "! ") or
+                std.mem.eql(u8, before_response, "? ")) {
+                needs_newlines_before = false;
+            }
+        }
+        
+        // Add text before the response
+        if (needs_newlines_before) {
+            // Remove any single space before "Antwort"
+            var text_before_pos = pos;
+            if (pos > 0 and filtered_text[pos-1] == ' ') {
+                text_before_pos = pos - 1;
+            }
+            try result.appendSlice(filtered_text[0..text_before_pos]);
+            try result.appendSlice("\n\nAntwort von Landeshauptstadt München");
+        } else {
+            try result.appendSlice(filtered_text[0..response_end]);
+        }
+        
+        // Add ":\n\n" after the response phrase
+        try result.appendSlice(":\n\n");
+        
+        // Add the rest of the text, but skip any existing colon or spacing
+        var remaining_start = response_end;
+        if (remaining_start < filtered_text.len) {
+            // Skip any existing colon and whitespace (but preserve intentional spacing)
+            while (remaining_start < filtered_text.len and 
+                   (filtered_text[remaining_start] == ':' or 
+                    filtered_text[remaining_start] == ' ' or 
+                    filtered_text[remaining_start] == '\t')) {
+                remaining_start += 1;
+            }
+            
+            // Skip only immediate newlines after colon/spaces, but preserve paragraph breaks
+            while (remaining_start < filtered_text.len and 
+                   (filtered_text[remaining_start] == '\n' or 
+                    filtered_text[remaining_start] == '\r')) {
+                remaining_start += 1;
+            }
+            
+            if (remaining_start < filtered_text.len) {
+                try result.appendSlice(filtered_text[remaining_start..]);
+            }
+        }
+        
+        return result.toOwnedSlice();
+    }
+    
+    // Also handle the shorter version "Antwort von Landeshauptstadt" for backward compatibility
     if (std.mem.indexOf(u8, filtered_text, "Antwort von Landeshauptstadt")) |pos| {
         // Look backwards to see if we need to add spacing
         var needs_spacing = true;

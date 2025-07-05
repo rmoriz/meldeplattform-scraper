@@ -189,3 +189,9 @@ Key constants can be modified in the source files:
 - Zig standard library only
 - No external dependencies required
 - Uses built-in HTTP client, JSON parser, and crypto functions
+
+## License
+
+This project is licensed under the Open Software License 3.0 (OSL-3.0). See the [LICENSE](LICENSE) file for details.
+
+Licensed under the Open Software License version 3.0
