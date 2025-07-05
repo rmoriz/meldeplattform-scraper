@@ -25,16 +25,21 @@ WORKDIR /app
 COPY build.zig .
 COPY src/ src/
 
-# Build the parallel version (native compilation)
-# Use simpler optimization for ARM64 to avoid hanging
+# Build the parallel version with explicit target architecture
 ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        echo "Building for ARM64 with ReleaseSmall optimization" && \
-        zig build -Doptimize=ReleaseSmall; \
-    else \
-        echo "Building for AMD64 with ReleaseSafe optimization" && \
-        zig build -Doptimize=ReleaseSafe; \
-    fi
+RUN case "${TARGETARCH}" in \
+        "arm64") \
+            echo "Building for ARM64 with ReleaseSmall optimization" && \
+            zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSmall; \
+            ;; \
+        "amd64") \
+            echo "Building for AMD64 with ReleaseSafe optimization" && \
+            zig build -Dtarget=x86_64-linux -Doptimize=ReleaseSafe; \
+            ;; \
+        *) \
+            echo "Unsupported architecture: ${TARGETARCH}" && exit 1; \
+            ;; \
+    esac
 
 # Production stage
 FROM alpine:3.19
