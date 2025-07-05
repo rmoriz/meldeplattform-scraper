@@ -73,8 +73,11 @@ ENV TZ=Europe/Berlin
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD test -f /app/cache/*.json || exit 0
 
-# Default command runs the parallel scraper
-CMD ["/app/meldeplattform-scraper"]
+# Set the entrypoint to the application
+ENTRYPOINT ["/app/meldeplattform-scraper"]
+
+# Default command (can be overridden)
+CMD []
 
 # To save output to file, run with:
 # docker run --rm -v $(pwd)/output:/app/output meldeplattform-scraper --output /app/output/data.json
