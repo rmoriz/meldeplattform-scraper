@@ -7,7 +7,7 @@ RUN apk add --no-cache \
     xz \
     ca-certificates
 
-# Install Zig - use native architecture
+# Install Zig - use target-specific architecture
 ARG ZIG_VERSION=0.13.0
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
