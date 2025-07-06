@@ -67,23 +67,23 @@ jobs:
       if: github.event_name == 'pull_request'
       run: |
         echo "Testing AMD64 image..."
-        docker run --rm --platform linux/amd64 --entrypoint="" ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} /app/meldeplattform-scraper --help
+        docker run --rm --platform linux/amd64 ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} --help
         echo "AMD64 architecture verification:"
-        docker run --rm --platform linux/amd64 ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} sh -c "uname -m"
+        docker run --rm --platform linux/amd64 --entrypoint="" ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} sh -c "uname -m"
 
     - name: Test ARM64 image  
       if: github.event_name == 'pull_request'
       run: |
         echo "Testing ARM64 image..."
-        docker run --rm --platform linux/arm64 --entrypoint="" ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} /app/meldeplattform-scraper --help
+        docker run --rm --platform linux/arm64 ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} --help
         echo "ARM64 architecture verification:"
-        docker run --rm --platform linux/arm64 ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} sh -c "uname -m"
+        docker run --rm --platform linux/arm64 --entrypoint="" ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} sh -c "uname -m"
 
     - name: Test functional scraping (AMD64)
       if: github.event_name == 'pull_request'
       run: |
         echo "Testing functional scraping on AMD64..."
-        timeout 30s docker run --rm --platform linux/amd64 --entrypoint="" ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} /app/meldeplattform-scraper --output /tmp/test.json || true
+        timeout 30s docker run --rm --platform linux/amd64 ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} --output /tmp/test.json || true
         echo "Scraping test completed"
 
   smoke-test:
@@ -114,8 +114,8 @@ jobs:
     - name: Smoke test ${{ matrix.platform }}
       run: |
         echo "Running smoke test for ${{ matrix.platform }}..."
-        docker run --rm --platform ${{ matrix.platform }} --entrypoint="" ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} /app/meldeplattform-scraper --help
+        docker run --rm --platform ${{ matrix.platform }} ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} --help
         echo "Architecture verification:"
-        docker run --rm --platform ${{ matrix.platform }} ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} sh -c "uname -m"
+        docker run --rm --platform ${{ matrix.platform }} --entrypoint="" ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} sh -c "uname -m"
         echo "Quick functional test:"
         timeout 15s docker run --rm --platform ${{ matrix.platform }} ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} || true
