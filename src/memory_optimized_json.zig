@@ -41,6 +41,12 @@ pub fn itemsToJsonOptimized(allocator: Allocator, items: []const json_output.Pro
             try writer.writeAll("\",\n");
             try writer.writeAll("        \"base64_data\": \"");
             try writeEscapedString(writer, image.base64_data);
+            try writer.writeAll("\",\n");
+            try writer.writeAll("        \"filename\": \"");
+            try writeEscapedString(writer, image.filename);
+            try writer.writeAll("\",\n");
+            try writer.writeAll("        \"mime_type\": \"");
+            try writeEscapedString(writer, image.mime_type);
             try writer.writeAll("\"\n");
             try writer.writeAll("      }");
         }

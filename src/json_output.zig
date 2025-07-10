@@ -14,10 +14,14 @@ pub fn extractIdFromUrl(url: []const u8) u32 {
 pub const ImageData = struct {
     url: []u8,
     base64_data: []u8,
+    filename: []u8,
+    mime_type: []u8,
     
     pub fn deinit(self: ImageData, allocator: Allocator) void {
         allocator.free(self.url);
         allocator.free(self.base64_data);
+        allocator.free(self.filename);
+        allocator.free(self.mime_type);
     }
 };
 
@@ -74,6 +78,8 @@ pub fn itemsToJson(allocator: Allocator, items: []const ProcessedItem) ![]u8 {
             var image_obj = std.json.ObjectMap.init(arena_allocator);
             try image_obj.put("url", std.json.Value{ .string = image.url });
             try image_obj.put("base64_data", std.json.Value{ .string = image.base64_data });
+            try image_obj.put("filename", std.json.Value{ .string = image.filename });
+            try image_obj.put("mime_type", std.json.Value{ .string = image.mime_type });
             try images_array.append(std.json.Value{ .object = image_obj });
         }
         try json_obj.put("images", std.json.Value{ .array = images_array });

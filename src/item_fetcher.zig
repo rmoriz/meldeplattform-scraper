@@ -845,9 +845,14 @@ fn extractImagesFromDiv(allocator: Allocator, div_content: []const u8, images: *
                 
                 // Fetch the image and convert to base64
                 if (fetchImageAsBase64(allocator, full_size_url)) |base64_data| {
+                    const filename = try extractFilenameFromUrl(allocator, full_size_url);
+                    const mime_type = try getMimeTypeFromUrl(allocator, full_size_url);
+                    
                     const image_data = json_output.ImageData{
                         .url = try allocator.dupe(u8, full_size_url),
                         .base64_data = base64_data,
+                        .filename = filename,
+                        .mime_type = mime_type,
                     };
                     try images.append(image_data);
                 } else |err| {
@@ -916,4 +921,65 @@ fn fetchImageAsBase64(allocator: Allocator, image_url: []const u8) ![]u8 {
     _ = base64_encoder.encode(base64_data, image_data);
     
     return base64_data;
+}
+
+fn extractFilenameFromUrl(allocator: Allocator, url: []const u8) ![]u8 {
+    // Extract filename from URL like:
+    // https://imbo.werdenktwas.de/users/prod-wdw/images/5rvUOwm6OLqEqHrel1ynxoA_8v5XfK9T.jpg?...
+    // Should return: 5rvUOwm6OLqEqHrel1ynxoA_8v5XfK9T.jpg
+    
+    // Find the last slash to get the filename part
+    if (std.mem.lastIndexOfScalar(u8, url, '/')) |last_slash| {
+        const filename_with_params = url[last_slash + 1..];
+        
+        // Remove query parameters (everything after '?')
+        if (std.mem.indexOfScalar(u8, filename_with_params, '?')) |question_mark| {
+            return allocator.dupe(u8, filename_with_params[0..question_mark]);
+        } else {
+            return allocator.dupe(u8, filename_with_params);
+        }
+    }
+    
+    // Fallback: generate a filename based on URL hash
+    const url_hash = std.hash.Wyhash.hash(0, url);
+    return std.fmt.allocPrint(allocator, "image_{x}.jpg", .{url_hash});
+}
+
+fn getMimeTypeFromUrl(allocator: Allocator, url: []const u8) ![]u8 {
+    // Extract file extension and determine MIME type
+    const filename = try extractFilenameFromUrl(allocator, url);
+    defer allocator.free(filename);
+    
+    // Find the last dot to get the extension
+    if (std.mem.lastIndexOfScalar(u8, filename, '.')) |last_dot| {
+        const extension = filename[last_dot + 1..];
+        
+        // Convert extension to lowercase for comparison
+        var lowercase_ext = try allocator.alloc(u8, extension.len);
+        defer allocator.free(lowercase_ext);
+        
+        for (extension, 0..) |char, i| {
+            lowercase_ext[i] = std.ascii.toLower(char);
+        }
+        
+        // Map common image extensions to MIME types
+        if (std.mem.eql(u8, lowercase_ext, "jpg") or std.mem.eql(u8, lowercase_ext, "jpeg")) {
+            return allocator.dupe(u8, "image/jpeg");
+        } else if (std.mem.eql(u8, lowercase_ext, "png")) {
+            return allocator.dupe(u8, "image/png");
+        } else if (std.mem.eql(u8, lowercase_ext, "gif")) {
+            return allocator.dupe(u8, "image/gif");
+        } else if (std.mem.eql(u8, lowercase_ext, "webp")) {
+            return allocator.dupe(u8, "image/webp");
+        } else if (std.mem.eql(u8, lowercase_ext, "svg")) {
+            return allocator.dupe(u8, "image/svg+xml");
+        } else if (std.mem.eql(u8, lowercase_ext, "bmp")) {
+            return allocator.dupe(u8, "image/bmp");
+        } else if (std.mem.eql(u8, lowercase_ext, "tiff") or std.mem.eql(u8, lowercase_ext, "tif")) {
+            return allocator.dupe(u8, "image/tiff");
+        }
+    }
+    
+    // Default to JPEG if extension is unknown or missing
+    return allocator.dupe(u8, "image/jpeg");
 }
