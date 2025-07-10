@@ -813,35 +813,50 @@ fn extractImages(allocator: Allocator, html_content: []const u8) ![]json_output.
 fn extractImagesFromDiv(allocator: Allocator, div_content: []const u8, images: *std.ArrayList(json_output.ImageData)) !void {
     var search_pos: usize = 0;
     
-    while (std.mem.indexOfPos(u8, div_content, search_pos, "<img")) |img_pos| {
-        // Find the end of the img tag
-        const img_end = std.mem.indexOfPos(u8, div_content, img_pos, ">") orelse {
-            search_pos = img_pos + 4;
+    // Look for anchor tags that link to full-size images
+    while (std.mem.indexOfPos(u8, div_content, search_pos, "<a")) |a_pos| {
+        // Find the end of the anchor tag
+        const a_end = std.mem.indexOfPos(u8, div_content, a_pos, ">") orelse {
+            search_pos = a_pos + 2;
             continue;
         };
         
-        const img_tag = div_content[img_pos..img_end + 1];
+        const a_tag = div_content[a_pos..a_end + 1];
         
-        // Extract src attribute
-        if (extractAttribute(img_tag, "src")) |src_url| {
-            // Check if this is an imbo.werdenktwas.de image
-            if (std.mem.startsWith(u8, src_url, "https://imbo.werdenktwas.de/users/prod-wdw/images/")) {
-                std.io.getStdErr().writer().print("  Found image: {s}\n", .{src_url}) catch {};
+        // Extract href attribute
+        if (extractAttribute(a_tag, "href")) |href_url| {
+            // Check if this is a link to an imbo.werdenktwas.de image
+            if (std.mem.startsWith(u8, href_url, "https://imbo.werdenktwas.de/users/prod-wdw/images/")) {
+                // Skip thumbnail links - we want full-size images
+                if (std.mem.indexOf(u8, href_url, "thumbnail") != null) {
+                    search_pos = a_end + 1;
+                    continue;
+                }
+                
+                // Convert to full-size URL by removing query parameters
+                const full_size_url = getFullSizeImageUrl(allocator, href_url) catch |err| {
+                    std.io.getStdErr().writer().print("  Failed to process image URL {s}: {}\n", .{ href_url, err }) catch {};
+                    search_pos = a_end + 1;
+                    continue;
+                };
+                defer allocator.free(full_size_url);
+                
+                std.io.getStdErr().writer().print("  Found full-size image: {s}\n", .{full_size_url}) catch {};
                 
                 // Fetch the image and convert to base64
-                if (fetchImageAsBase64(allocator, src_url)) |base64_data| {
+                if (fetchImageAsBase64(allocator, full_size_url)) |base64_data| {
                     const image_data = json_output.ImageData{
-                        .url = try allocator.dupe(u8, src_url),
+                        .url = try allocator.dupe(u8, full_size_url),
                         .base64_data = base64_data,
                     };
                     try images.append(image_data);
                 } else |err| {
-                    std.io.getStdErr().writer().print("  Failed to fetch image {s}: {}\n", .{ src_url, err }) catch {};
+                    std.io.getStdErr().writer().print("  Failed to fetch image {s}: {}\n", .{ full_size_url, err }) catch {};
                 }
             }
         }
         
-        search_pos = img_end + 1;
+        search_pos = a_end + 1;
     }
 }
 
@@ -857,6 +872,35 @@ fn extractAttribute(tag: []const u8, attr_name: []const u8) ?[]const u8 {
     }
     
     return null;
+}
+
+fn getFullSizeImageUrl(allocator: Allocator, thumbnail_url: []const u8) ![]u8 {
+    // Convert small thumbnail to larger thumbnail while preserving authentication
+    // Example: https://imbo.werdenktwas.de/users/prod-wdw/images/abc123.jpg?t[]=strip&t[]=thumbnail:width=128,height=128&publicKey=...&accessToken=...
+    // Becomes: https://imbo.werdenktwas.de/users/prod-wdw/images/abc123.jpg?t[]=strip&t[]=thumbnail:width=800,height=600&publicKey=...&accessToken=...
+    
+    // Look for the thumbnail size pattern and replace it
+    const small_thumbnail_pattern = "thumbnail%3Awidth%3D128%2Cheight%3D128";
+    const large_thumbnail_pattern = "thumbnail%3Awidth%3D800%2Cheight%3D600";
+    
+    if (std.mem.indexOf(u8, thumbnail_url, small_thumbnail_pattern)) |pos| {
+        // Found the pattern, replace it
+        var result = std.ArrayList(u8).init(allocator);
+        defer result.deinit();
+        
+        // Add everything before the pattern
+        try result.appendSlice(thumbnail_url[0..pos]);
+        // Add the replacement pattern
+        try result.appendSlice(large_thumbnail_pattern);
+        // Add everything after the pattern
+        const after_pos = pos + small_thumbnail_pattern.len;
+        try result.appendSlice(thumbnail_url[after_pos..]);
+        
+        return result.toOwnedSlice();
+    } else {
+        // Pattern not found, return original URL
+        return allocator.dupe(u8, thumbnail_url);
+    }
 }
 
 fn fetchImageAsBase64(allocator: Allocator, image_url: []const u8) ![]u8 {
