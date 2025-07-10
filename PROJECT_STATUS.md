@@ -46,6 +46,7 @@ rss-cache-parser/
 - ✅ **Creation Date Extraction**: From HTML detail pages
 - ✅ **Address Extraction**: Auto-determined locations
 - ✅ **Rich Descriptions**: Full citizen report content
+- ✅ **Image Extraction**: Base64 encoding from `.bms-attachments` sections
 
 ### **Technical Excellence**
 - ✅ **Memory Safety**: Zero memory leaks
@@ -65,14 +66,22 @@ rss-cache-parser/
 
 ```json
 {
-  "title": "Report Title",
-  "url": "https://detail-page-url",
-  "pub_date": "Wed, 02 Jul 2025 18:32:19 +0000",
-  "creation_date": "02.07.2025",
-  "address": "Karlsplatz 11, 80335 München, Germany",
+  "id": 2067877,
+  "title": "Vergessene Bake",
+  "url": "https://meldeplattform-rad.muenchenunterwegs.de/bms/2067877",
+  "pub_date": "Wed, 09 Jul 2025 19:19:59 +0000",
+  "creation_date": "09.07.2025",
+  "address": "Adolf-Kolping-Straße 10, 80336 München",
+  "borough": "Ludwigsvorstadt-Isarvorstadt",
   "description": "Full citizen report content...",
+  "images": [
+    {
+      "url": "https://imbo.werdenktwas.de/users/prod-wdw/images/5rvUOwm6OLqEqHrel1ynxoA_8v5XfK9T.jpg?...",
+      "base64_data": "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQIBAQEBAQIBAQECAgICAgICAgIDAwQDAwMDAwICAwQDAwQEBAQEAgMFBQQEBQQEBAT/..."
+    }
+  ],
   "cached": false,
-  "html_length": 27884
+  "html_length": 27750
 }
 ```
 

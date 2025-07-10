@@ -43,12 +43,15 @@ I have successfully implemented a comprehensive RSS cache parser solution in Zig
 - **Meta description**: Extracts structured metadata
 - **Title extraction**: Falls back to HTML title tags
 - **Paragraph content**: Extracts meaningful text content
+- **Image extraction**: Finds images in `.bms-attachments` sections
+- **Base64 encoding**: Converts images to embedded data format
 - **Text cleanup**: Removes HTML tags and normalizes whitespace
 - **Length limiting**: Prevents memory issues with large content
 
 #### 5. **JSON Output**
 - **Structured format**: Clean, readable JSON output
-- **Rich metadata**: Includes caching status, content length
+- **Rich metadata**: Includes caching status, content length, images
+- **Image embedding**: Base64-encoded images in JSON structure
 - **Pretty printing**: Indented JSON for readability
 - **Memory efficient**: Streaming JSON generation
 
@@ -79,12 +82,22 @@ The Python demonstration script shows the system working correctly:
 ```json
 [
   {
-    "title": "02.07.2025: fehlende Fahrbahnmarkierung - Unfall einer Schwangeren",
-    "url": "https://meldeplattform-rad.muenchenunterwegs.de/bms/2051565",
-    "pub_date": "Wed, 02 Jul 2025 18:32:19 +0000",
-    "description": "02.07.2025: fehlende Fahrbahnmarkierung - Unfall einer Sc...",
+    "id": 2067877,
+    "title": "Vergessene Bake",
+    "url": "https://meldeplattform-rad.muenchenunterwegs.de/bms/2067877",
+    "pub_date": "Wed, 09 Jul 2025 19:19:59 +0000",
+    "creation_date": "09.07.2025",
+    "address": "Adolf-Kolping-Straße 10, 80336 München",
+    "borough": "Ludwigsvorstadt-Isarvorstadt",
+    "description": "Hier steht seit Monaten eine vergessene Bake...",
+    "images": [
+      {
+        "url": "https://imbo.werdenktwas.de/users/prod-wdw/images/5rvUOwm6OLqEqHrel1ynxoA_8v5XfK9T.jpg?...",
+        "base64_data": "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQIBAQEBAQIBAQECAgICAgICAgIDAwQDAwMDAwICAwQDAwQEBAQEAgMFBQQEBQQEBAT/..."
+      }
+    ],
     "cached": false,
-    "html_length": 26339
+    "html_length": 27750
   }
 ]
 ```

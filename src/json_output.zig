@@ -11,6 +11,16 @@ pub fn extractIdFromUrl(url: []const u8) u32 {
     return 0;
 }
 
+pub const ImageData = struct {
+    url: []u8,
+    base64_data: []u8,
+    
+    pub fn deinit(self: ImageData, allocator: Allocator) void {
+        allocator.free(self.url);
+        allocator.free(self.base64_data);
+    }
+};
+
 pub const ProcessedItem = struct {
     id: u32,
     title: []u8,
@@ -21,6 +31,7 @@ pub const ProcessedItem = struct {
     borough: []u8,
     html_content: []u8,
     description: []u8,
+    images: []ImageData,
     cached: bool,
 
     pub fn deinit(self: ProcessedItem, allocator: Allocator) void {
@@ -32,6 +43,11 @@ pub const ProcessedItem = struct {
         allocator.free(self.borough);
         allocator.free(self.html_content);
         allocator.free(self.description);
+        
+        for (self.images) |image| {
+            image.deinit(allocator);
+        }
+        allocator.free(self.images);
     }
 };
 
@@ -51,6 +67,17 @@ pub fn itemsToJson(allocator: Allocator, items: []const ProcessedItem) ![]u8 {
         try json_obj.put("url", std.json.Value{ .string = item.url });
         try json_obj.put("pub_date", std.json.Value{ .string = item.pub_date });
         try json_obj.put("description", std.json.Value{ .string = item.description });
+        
+        // Add images array
+        var images_array = std.json.Array.init(arena_allocator);
+        for (item.images) |image| {
+            var image_obj = std.json.ObjectMap.init(arena_allocator);
+            try image_obj.put("url", std.json.Value{ .string = image.url });
+            try image_obj.put("base64_data", std.json.Value{ .string = image.base64_data });
+            try images_array.append(std.json.Value{ .object = image_obj });
+        }
+        try json_obj.put("images", std.json.Value{ .array = images_array });
+        
         try json_obj.put("cached", std.json.Value{ .bool = item.cached });
         try json_obj.put("html_length", std.json.Value{ .integer = @intCast(item.html_content.len) });
         

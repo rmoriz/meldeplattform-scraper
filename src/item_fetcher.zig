@@ -28,6 +28,7 @@ pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_out
                 .borough = try extractBorough(allocator, cached_item.html_content),
                 .html_content = try allocator.dupe(u8, cached_item.html_content),
                 .description = try extractDescription(allocator, cached_item.html_content),
+                .images = try extractImages(allocator, cached_item.html_content),
                 .cached = true,
             };
         } else |_| {
@@ -68,6 +69,7 @@ pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_out
         .borough = try extractBorough(allocator, html_content),
         .html_content = try allocator.dupe(u8, html_content),
         .description = try extractDescription(allocator, html_content),
+        .images = try extractImages(allocator, html_content),
         .cached = false,
     };
 }
@@ -753,4 +755,121 @@ fn filterUnwantedContent(allocator: Allocator, text: []const u8) ![]u8 {
     }
     
     return final_result.toOwnedSlice();
+}
+
+fn extractImages(allocator: Allocator, html_content: []const u8) ![]json_output.ImageData {
+    var images = std.ArrayList(json_output.ImageData).init(allocator);
+    defer images.deinit();
+    
+    // Look for .bms-attachments class
+    var search_pos: usize = 0;
+    while (std.mem.indexOfPos(u8, html_content, search_pos, "class=\"bms-attachments\"")) |class_pos| {
+        // Find the div containing this class
+        const div_start = std.mem.lastIndexOfScalar(u8, html_content[0..class_pos], '<') orelse class_pos;
+        
+        // Find the closing div tag
+        var div_end = class_pos;
+        var div_depth: i32 = 1;
+        var pos = class_pos;
+        
+        while (pos < html_content.len and div_depth > 0) {
+            if (std.mem.indexOfPos(u8, html_content, pos, "<div")) |next_div| {
+                if (std.mem.indexOfPos(u8, html_content, pos, "</div>")) |next_close| {
+                    if (next_div < next_close) {
+                        div_depth += 1;
+                        pos = next_div + 4;
+                    } else {
+                        div_depth -= 1;
+                        pos = next_close + 6;
+                        if (div_depth == 0) {
+                            div_end = next_close + 6;
+                        }
+                    }
+                } else {
+                    div_depth -= 1;
+                    pos = html_content.len;
+                }
+            } else if (std.mem.indexOfPos(u8, html_content, pos, "</div>")) |next_close| {
+                div_depth -= 1;
+                pos = next_close + 6;
+                if (div_depth == 0) {
+                    div_end = next_close + 6;
+                }
+            } else {
+                break;
+            }
+        }
+        
+        // Extract images from this div section
+        const div_content = html_content[div_start..div_end];
+        try extractImagesFromDiv(allocator, div_content, &images);
+        
+        search_pos = div_end;
+    }
+    
+    return images.toOwnedSlice();
+}
+
+fn extractImagesFromDiv(allocator: Allocator, div_content: []const u8, images: *std.ArrayList(json_output.ImageData)) !void {
+    var search_pos: usize = 0;
+    
+    while (std.mem.indexOfPos(u8, div_content, search_pos, "<img")) |img_pos| {
+        // Find the end of the img tag
+        const img_end = std.mem.indexOfPos(u8, div_content, img_pos, ">") orelse {
+            search_pos = img_pos + 4;
+            continue;
+        };
+        
+        const img_tag = div_content[img_pos..img_end + 1];
+        
+        // Extract src attribute
+        if (extractAttribute(img_tag, "src")) |src_url| {
+            // Check if this is an imbo.werdenktwas.de image
+            if (std.mem.startsWith(u8, src_url, "https://imbo.werdenktwas.de/users/prod-wdw/images/")) {
+                std.io.getStdErr().writer().print("  Found image: {s}\n", .{src_url}) catch {};
+                
+                // Fetch the image and convert to base64
+                if (fetchImageAsBase64(allocator, src_url)) |base64_data| {
+                    const image_data = json_output.ImageData{
+                        .url = try allocator.dupe(u8, src_url),
+                        .base64_data = base64_data,
+                    };
+                    try images.append(image_data);
+                } else |err| {
+                    std.io.getStdErr().writer().print("  Failed to fetch image {s}: {}\n", .{ src_url, err }) catch {};
+                }
+            }
+        }
+        
+        search_pos = img_end + 1;
+    }
+}
+
+fn extractAttribute(tag: []const u8, attr_name: []const u8) ?[]const u8 {
+    const search_pattern = std.fmt.allocPrint(std.heap.page_allocator, "{s}=\"", .{attr_name}) catch return null;
+    defer std.heap.page_allocator.free(search_pattern);
+    
+    if (std.mem.indexOf(u8, tag, search_pattern)) |start_pos| {
+        const value_start = start_pos + search_pattern.len;
+        if (std.mem.indexOfScalarPos(u8, tag, value_start, '"')) |end_pos| {
+            return tag[value_start..end_pos];
+        }
+    }
+    
+    return null;
+}
+
+fn fetchImageAsBase64(allocator: Allocator, image_url: []const u8) ![]u8 {
+    // Fetch the image data
+    const image_data = try http_client.fetchUrlWithRetry(allocator, image_url, 3);
+    defer allocator.free(image_data);
+    
+    // Encode as base64
+    const base64_encoder = std.base64.standard.Encoder;
+    const encoded_len = base64_encoder.calcSize(image_data.len);
+    const base64_data = try allocator.alloc(u8, encoded_len);
+    
+    _ = base64_encoder.encode(base64_data, image_data);
+    
+    return base64_data;
 }

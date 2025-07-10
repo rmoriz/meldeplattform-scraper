@@ -28,6 +28,24 @@ pub fn itemsToJsonOptimized(allocator: Allocator, items: []const json_output.Pro
         try writeJsonField(writer, "address", item.address, true);
         try writeJsonField(writer, "borough", item.borough, true);
         try writeJsonField(writer, "description", item.description, true);
+        
+        // Write images array
+        try writer.writeAll("    \"images\": [\n");
+        for (item.images, 0..) |image, img_i| {
+            if (img_i > 0) {
+                try writer.writeAll(",\n");
+            }
+            try writer.writeAll("      {\n");
+            try writer.writeAll("        \"url\": \"");
+            try writeEscapedString(writer, image.url);
+            try writer.writeAll("\",\n");
+            try writer.writeAll("        \"base64_data\": \"");
+            try writeEscapedString(writer, image.base64_data);
+            try writer.writeAll("\"\n");
+            try writer.writeAll("      }");
+        }
+        try writer.writeAll("\n    ],\n");
+        
         try writeJsonFieldBool(writer, "cached", item.cached, true);
         try writeJsonFieldInt(writer, "html_length", item.html_content.len, false);
         
@@ -75,4 +93,18 @@ fn writeJsonFieldInt(writer: anytype, key: []const u8, value: anytype, comma: bo
         try writer.writeByte(',');
     }
     try writer.writeByte('\n');
+}
+
+fn writeEscapedString(writer: anytype, value: []const u8) !void {
+    // Escape JSON string
+    for (value) |char| {
+        switch (char) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => try writer.writeByte(char),
+        }
+    }
 }

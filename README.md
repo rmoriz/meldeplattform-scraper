@@ -10,7 +10,8 @@ A Zig-based RSS feed parser with local caching and HTML content extraction for t
 - Fetches individual HTML pages for each RSS item concurrently
 - Local file-based caching with 24-hour expiration
 - Extracts meaningful content from HTML pages
-- Outputs structured JSON data
+- **Image extraction and base64 encoding** from `.bms-attachments` sections
+- Outputs structured JSON data with embedded images
 - Retry logic with exponential backoff for network requests
 - Memory-safe implementation using Zig's explicit memory management
 - **Performance optimizations** with thread-safe operations and load balancing
@@ -87,6 +88,8 @@ python3 benchmark.py
 3. **HTML Processing**: 
    - Fetches individual item HTML pages
    - Extracts meaningful content (meta description, title, paragraphs)
+   - **Image extraction** from `.bms-attachments` CSS class
+   - **Base64 encoding** of images from `imbo.werdenktwas.de` domain
    - Falls back to text content extraction if structured data unavailable
 4. **Output**: Generates structured JSON with all processed items
 
@@ -109,12 +112,22 @@ The final JSON output contains an array of processed items:
 ```json
 [
   {
-    "title": "Item Title",
-    "url": "https://example.com/item/123",
-    "pub_date": "Wed, 02 Jul 2025 18:32:19 +0000",
-    "description": "Extracted description from HTML",
+    "id": 2067877,
+    "title": "Vergessene Bake",
+    "url": "https://meldeplattform-rad.muenchenunterwegs.de/bms/2067877",
+    "pub_date": "Wed, 09 Jul 2025 19:19:59 +0000",
+    "creation_date": "09.07.2025",
+    "address": "Adolf-Kolping-Straße 10, 80336 München",
+    "borough": "Ludwigsvorstadt-Isarvorstadt",
+    "description": "Hier steht seit Monaten eine vergessene Bake...",
+    "images": [
+      {
+        "url": "https://imbo.werdenktwas.de/users/prod-wdw/images/5rvUOwm6OLqEqHrel1ynxoA_8v5XfK9T.jpg?...",
+        "base64_data": "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQIBAQEBAQIBAQECAgICAgICAgIDAwQDAwMDAwICAwQDAwQEBAQEAgMFBQQEBQQEBAT/..."
+      }
+    ],
     "cached": false,
-    "html_length": 15420
+    "html_length": 27750
   }
 ]
 ```
@@ -135,6 +148,7 @@ The final JSON output contains an array of processed items:
 - **Load Balancing**: Optimal work distribution across worker threads
 - **Resource Limits**: Configurable limits for HTTP response sizes
 - **Performance Monitoring**: Built-in timing and throughput metrics
+- **Image Processing**: Concurrent image fetching and base64 encoding
 
 ### Performance Improvements
 
