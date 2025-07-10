@@ -70,4 +70,4 @@ coverage/
 *.coverage
 
 # Profiling data
-*.prof
+*.profoutput.json
