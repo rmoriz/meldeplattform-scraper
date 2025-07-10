@@ -11,12 +11,19 @@ pub fn extractIdFromUrl(url: []const u8) u32 {
     return 0;
 }
 
+pub const ImageDimensions = struct {
+    width: u32,
+    height: u32,
+};
+
 pub const ImageData = struct {
     url: []u8,
     base64_data: []u8,
     filename: []u8,
     mime_type: []u8,
-    
+    file_size: u64,
+    image_size: ImageDimensions,
+
     pub fn deinit(self: ImageData, allocator: Allocator) void {
         allocator.free(self.url);
         allocator.free(self.base64_data);
@@ -80,6 +87,13 @@ pub fn itemsToJson(allocator: Allocator, items: []const ProcessedItem) ![]u8 {
             try image_obj.put("base64_data", std.json.Value{ .string = image.base64_data });
             try image_obj.put("filename", std.json.Value{ .string = image.filename });
             try image_obj.put("mime_type", std.json.Value{ .string = image.mime_type });
+            try image_obj.put("file_size", std.json.Value{ .integer = @intCast(image.file_size) });
+
+            var image_size_obj = std.json.ObjectMap.init(arena_allocator);
+            try image_size_obj.put("width", std.json.Value{ .integer = @intCast(image.image_size.width) });
+            try image_size_obj.put("height", std.json.Value{ .integer = @intCast(image.image_size.height) });
+            try image_obj.put("image_size", std.json.Value{ .object = image_size_obj });
+
             try images_array.append(std.json.Value{ .object = image_obj });
         }
         try json_obj.put("images", std.json.Value{ .array = images_array });

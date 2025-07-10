@@ -6,6 +6,7 @@ const http_client = @import("http_client.zig");
 const pooled_http_client = @import("pooled_http_client.zig");
 const cache = @import("cache.zig");
 const json_output = @import("json_output.zig");
+const image_parser = @import("image_parser.zig");
 
 pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_output.ProcessedItem {
     const cache_filename = try cache.getCacheFilename(allocator, rss_item.link);
@@ -40,7 +41,7 @@ pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_out
     std.io.getStdErr().writer().print("  Fetching fresh data for: {s}\n", .{rss_item.title}) catch {};
     
     const html_content = http_client.fetchUrlWithRetry(allocator, rss_item.link, 3) catch |err| {
-        std.io.getStdErr().writer().print("  Failed to fetch {s}: {}\n", .{ rss_item.link, err }) catch {};
+        std.io.getStdErr().writer().print("  Failed to fetch {s}: {any}\n", .{ rss_item.link, err }) catch {};
         return error.FetchFailed;
     };
     defer allocator.free(html_content);
@@ -56,7 +57,7 @@ pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_out
     defer cached_item.deinit(allocator);
     
     cache.saveToCache(allocator, cache_filename, cached_item) catch |err| {
-        std.io.getStdErr().writer().print("  Warning: Failed to save cache for {s}: {}\n", .{ rss_item.link, err }) catch {};
+        std.io.getStdErr().writer().print("  Warning: Failed to save cache for {s}: {any}\n", .{ rss_item.link, err }) catch {};
     };
     
     return json_output.ProcessedItem{
@@ -835,7 +836,7 @@ fn extractImagesFromDiv(allocator: Allocator, div_content: []const u8, images: *
                 
                 // Convert to full-size URL by removing query parameters
                 const full_size_url = getFullSizeImageUrl(allocator, href_url) catch |err| {
-                    std.io.getStdErr().writer().print("  Failed to process image URL {s}: {}\n", .{ href_url, err }) catch {};
+                    std.io.getStdErr().writer().print("  Failed to process image URL {s}: {any}\n", .{ href_url, err }) catch {};
                     search_pos = a_end + 1;
                     continue;
                 };
@@ -844,19 +845,10 @@ fn extractImagesFromDiv(allocator: Allocator, div_content: []const u8, images: *
                 std.io.getStdErr().writer().print("  Found full-size image: {s}\n", .{full_size_url}) catch {};
                 
                 // Fetch the image and convert to base64
-                if (fetchImageAsBase64(allocator, full_size_url)) |base64_data| {
-                    const filename = try extractFilenameFromUrl(allocator, full_size_url);
-                    const mime_type = try getMimeTypeFromUrl(allocator, full_size_url);
-                    
-                    const image_data = json_output.ImageData{
-                        .url = try allocator.dupe(u8, full_size_url),
-                        .base64_data = base64_data,
-                        .filename = filename,
-                        .mime_type = mime_type,
-                    };
+                if (fetchAndProcessImage(allocator, full_size_url)) |image_data| {
                     try images.append(image_data);
                 } else |err| {
-                    std.io.getStdErr().writer().print("  Failed to fetch image {s}: {}\n", .{ full_size_url, err }) catch {};
+                    std.io.getStdErr().writer().print("  Failed to fetch image {s}: {any}\n", .{ full_size_url, err }) catch {};
                 }
             }
         }
@@ -908,20 +900,51 @@ fn getFullSizeImageUrl(allocator: Allocator, thumbnail_url: []const u8) ![]u8 {
     }
 }
 
-fn fetchImageAsBase64(allocator: Allocator, image_url: []const u8) ![]u8 {
+fn fetchAndProcessImage(allocator: Allocator, image_url: []const u8) !json_output.ImageData {
     // Fetch the image data
     const image_data = try http_client.fetchUrlWithRetry(allocator, image_url, 3);
     defer allocator.free(image_data);
-    
+
+    // Get file size
+    const file_size = image_data.len;
+
+    // Parse image dimensions
+    const image_dims = image_parser.parseImageDimensions(image_data) catch |err| {
+        std.io.getStdErr().writer().print("  Failed to parse image dimensions for {s}: {any}\n", .{ image_url, err }) catch {};
+        // Return with default dimensions on parsing failure
+        return json_output.ImageData {
+            .url = try allocator.dupe(u8, image_url),
+            .base64_data = try toBase64(allocator, image_data),
+            .filename = try extractFilenameFromUrl(allocator, image_url),
+            .mime_type = try getMimeTypeFromUrl(allocator, image_url),
+            .file_size = file_size,
+            .image_size = .{ .width = 0, .height = 0 },
+        };
+    };
+
     // Encode as base64
+    const base64_data = try toBase64(allocator, image_data);
+
+    return json_output.ImageData{
+        .url = try allocator.dupe(u8, image_url),
+        .base64_data = base64_data,
+        .filename = try extractFilenameFromUrl(allocator, image_url),
+        .mime_type = try getMimeTypeFromUrl(allocator, image_url),
+        .file_size = file_size,
+        .image_size = image_dims,
+    };
+}
+
+fn toBase64(allocator: Allocator, data: []const u8) ![]u8 {
     const base64_encoder = std.base64.standard.Encoder;
-    const encoded_len = base64_encoder.calcSize(image_data.len);
+    const encoded_len = base64_encoder.calcSize(data.len);
     const base64_data = try allocator.alloc(u8, encoded_len);
     
-    _ = base64_encoder.encode(base64_data, image_data);
+    _ = base64_encoder.encode(base64_data, data);
     
     return base64_data;
 }
+
 
 fn extractFilenameFromUrl(allocator: Allocator, url: []const u8) ![]u8 {
     // Extract filename from URL like:
