@@ -16,11 +16,13 @@ RUN apk add --no-cache \
 # Install Zig - use target-specific architecture
 ARG ZIG_VERSION=0.14.1
 ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
+RUN echo "TARGETARCH is: ${TARGETARCH}" && \
+    case "${TARGETARCH:-amd64}" in \
         "arm64") ZIG_ARCH="aarch64" ;; \
         "amd64") ZIG_ARCH="x86_64" ;; \
-        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}, defaulting to x86_64" && ZIG_ARCH="x86_64" ;; \
     esac && \
+    echo "Using ZIG_ARCH: ${ZIG_ARCH}" && \
     curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt && \
     ln -s /opt/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}/zig /usr/local/bin/zig
 
@@ -33,7 +35,8 @@ COPY src/ src/
 
 # Build the parallel version with explicit target architecture
 ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
+RUN echo "Building for TARGETARCH: ${TARGETARCH}" && \
+    case "${TARGETARCH:-amd64}" in \
         "arm64") \
             echo "Building for ARM64 with ReleaseSmall optimization" && \
             zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSmall; \
@@ -43,7 +46,8 @@ RUN case "${TARGETARCH}" in \
             zig build -Dtarget=x86_64-linux -Doptimize=ReleaseSafe; \
             ;; \
         *) \
-            echo "Unsupported architecture: ${TARGETARCH}" && exit 1; \
+            echo "Unsupported architecture: ${TARGETARCH}, defaulting to AMD64" && \
+            zig build -Dtarget=x86_64-linux -Doptimize=ReleaseSafe; \
             ;; \
     esac
 
