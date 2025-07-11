@@ -10,6 +10,7 @@ cache/
 # Git
 .git/
 .gitignore
+.github/
 
 # Documentation
 *.md
