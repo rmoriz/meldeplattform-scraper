@@ -8,8 +8,10 @@ RUN apk add --no-cache \
     ca-certificates \
     vips-dev \
     glib-dev \
+    gobject-introspection-dev \
     build-base \
-    pkgconfig
+    pkgconfig \
+    musl-dev
 
 # Install Zig - use target-specific architecture
 ARG ZIG_VERSION=0.14.1
@@ -53,7 +55,8 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     vips \
-    glib
+    glib \
+    musl
 
 # Create non-root user
 RUN addgroup -g 1000 scraper && \
