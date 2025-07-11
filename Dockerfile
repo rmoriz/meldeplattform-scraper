@@ -38,21 +38,30 @@ WORKDIR /app
 COPY build.zig .
 COPY src/ src/
 
+# Set library paths for Zig to find system libraries
+ENV PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/share/pkgconfig"
+ENV LIBRARY_PATH="/usr/lib:/lib"
+ENV LD_LIBRARY_PATH="/usr/lib:/lib"
+
 # Build the parallel version with explicit target architecture
 ARG TARGETARCH
 RUN echo "Building for TARGETARCH: ${TARGETARCH}" && \
+    echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" && \
+    echo "LIBRARY_PATH: ${LIBRARY_PATH}" && \
+    pkg-config --libs vips && \
+    pkg-config --cflags vips && \
     case "${TARGETARCH:-amd64}" in \
         "arm64") \
             echo "Building for ARM64 with ReleaseSmall optimization" && \
-            zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSmall; \
+            zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSmall --search-prefix /usr; \
             ;; \
         "amd64") \
             echo "Building for AMD64 with ReleaseSafe optimization" && \
-            zig build -Dtarget=x86_64-linux -Doptimize=ReleaseSafe; \
+            zig build -Dtarget=x86_64-linux -Doptimize=ReleaseSafe --search-prefix /usr; \
             ;; \
         *) \
             echo "Unsupported architecture: ${TARGETARCH}, defaulting to AMD64" && \
-            zig build -Dtarget=x86_64-linux -Doptimize=ReleaseSafe; \
+            zig build -Dtarget=x86_64-linux -Doptimize=ReleaseSafe --search-prefix /usr; \
             ;; \
     esac
 
