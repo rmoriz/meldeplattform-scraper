@@ -23,11 +23,11 @@ RUN echo "TARGETARCH is: ${TARGETARCH}" && \
         *) echo "Unsupported architecture: ${TARGETARCH}, defaulting to x86_64" && ZIG_ARCH="x86_64" ;; \
     esac && \
     echo "Using ZIG_ARCH: ${ZIG_ARCH}" && \
-    ZIG_URL="https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}.tar.xz" && \
+    ZIG_URL="https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}.tar.xz" && \
     echo "Downloading Zig from: ${ZIG_URL}" && \
     curl -L "${ZIG_URL}" | tar -xJ -C /opt && \
     echo "Zig extracted, creating symlink..." && \
-    ln -s /opt/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}/zig /usr/local/bin/zig && \
+    ln -s /opt/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}/zig /usr/local/bin/zig && \
     echo "Zig installation complete, testing..." && \
     zig version
 
