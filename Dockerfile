@@ -1,5 +1,5 @@
 # Multi-stage build for Zig RSS Cache Parser
-FROM alpine:3.19 AS builder
+FROM alpine:3.22 AS builder
 
 # Install dependencies for building
 RUN apk add --no-cache \
@@ -12,7 +12,7 @@ RUN apk add --no-cache \
     pkgconfig
 
 # Install Zig - use target-specific architecture
-ARG ZIG_VERSION=0.13.0
+ARG ZIG_VERSION=0.14.1
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
         "arm64") ZIG_ARCH="aarch64" ;; \
@@ -46,7 +46,7 @@ RUN case "${TARGETARCH}" in \
     esac
 
 # Production stage
-FROM alpine:3.19
+FROM alpine:3.22
 
 # Install runtime dependencies
 RUN apk add --no-cache \
