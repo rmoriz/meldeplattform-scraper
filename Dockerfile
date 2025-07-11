@@ -5,7 +5,11 @@ FROM alpine:3.19 AS builder
 RUN apk add --no-cache \
     curl \
     xz \
-    ca-certificates
+    ca-certificates \
+    vips-dev \
+    glib-dev \
+    build-base \
+    pkgconfig
 
 # Install Zig - use target-specific architecture
 ARG ZIG_VERSION=0.13.0
@@ -47,7 +51,9 @@ FROM alpine:3.19
 # Install runtime dependencies
 RUN apk add --no-cache \
     ca-certificates \
-    tzdata
+    tzdata \
+    vips \
+    glib
 
 # Create non-root user
 RUN addgroup -g 1000 scraper && \
@@ -57,7 +63,7 @@ RUN addgroup -g 1000 scraper && \
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/zig-out/bin/rss-cache-parser-parallel /app/meldeplattform-scraper
+COPY --from=builder /app/zig-out/bin/meldeplattform-scraper-parallel /app/meldeplattform-scraper
 
 # Create cache directory with proper permissions
 RUN mkdir -p /app/cache && \
