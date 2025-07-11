@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     // Sequential version
     const exe = b.addExecutable(.{
-        .name = "rss-cache-parser",
+        .name = "meldeplattform-scraper",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
 
     // Parallel version
     const parallel_exe = b.addExecutable(.{
-        .name = "rss-cache-parser-parallel",
+        .name = "meldeplattform-scraper-parallel",
         .root_source_file = b.path("src/parallel_main.zig"),
         .target = target,
         .optimize = optimize,
