@@ -7,6 +7,7 @@ const pooled_http_client = @import("pooled_http_client.zig");
 const cache = @import("cache.zig");
 const json_output = @import("json_output.zig");
 const image_parser = @import("image_parser.zig");
+const image_resizer = @import("image_resizer.zig");
 
 pub fn processItem(allocator: Allocator, rss_item: rss_parser.RssItem) !json_output.ProcessedItem {
     const cache_filename = try cache.getCacheFilename(allocator, rss_item.link);
@@ -902,28 +903,47 @@ fn getFullSizeImageUrl(allocator: Allocator, thumbnail_url: []const u8) ![]u8 {
 
 fn fetchAndProcessImage(allocator: Allocator, image_url: []const u8) !json_output.ImageData {
     // Fetch the image data
-    const image_data = try http_client.fetchUrlWithRetry(allocator, image_url, 3);
-    defer allocator.free(image_data);
+    const original_image_data = try http_client.fetchUrlWithRetry(allocator, image_url, 3);
+    defer allocator.free(original_image_data);
 
-    // Get file size
-    const file_size = image_data.len;
-
-    // Parse image dimensions
-    const image_dims = image_parser.parseImageDimensions(image_data) catch |err| {
-        std.io.getStdErr().writer().print("  Failed to parse image dimensions for {s}: {any}\n", .{ image_url, err }) catch {};
-        // Return with default dimensions on parsing failure
-        return json_output.ImageData {
-            .url = try allocator.dupe(u8, image_url),
-            .base64_data = try toBase64(allocator, image_data),
-            .filename = try extractFilenameFromUrl(allocator, image_url),
-            .mime_type = try getMimeTypeFromUrl(allocator, image_url),
-            .file_size = file_size,
-            .image_size = .{ .width = 0, .height = 0 },
-        };
+    // Configure image resizing
+    const resize_config = image_resizer.ResizeConfig{
+        .max_width = 2048,
+        .max_height = 2048,
+        .quality = 80,
+        .preserve_aspect_ratio = true,
     };
 
-    // Encode as base64
-    const base64_data = try toBase64(allocator, image_data);
+    // Resize the image
+    const resized_image_data = image_resizer.resizeImage(allocator, original_image_data, resize_config) catch |err| {
+        std.io.getStdErr().writer().print("  Failed to resize image {s}: {any}, using original\n", .{ image_url, err }) catch {};
+        // Fall back to original image if resizing fails
+        return json_output.ImageData{
+            .url = try allocator.dupe(u8, image_url),
+            .base64_data = try toBase64(allocator, original_image_data),
+            .filename = try extractFilenameFromUrl(allocator, image_url),
+            .mime_type = try getMimeTypeFromUrl(allocator, image_url),
+            .file_size = original_image_data.len,
+            .image_size = image_parser.parseImageDimensions(original_image_data) catch json_output.ImageDimensions{ .width = 0, .height = 0 },
+        };
+    };
+    defer allocator.free(resized_image_data);
+
+    // Get file size of resized image
+    const file_size = resized_image_data.len;
+
+    // Parse image dimensions from resized image
+    const image_dims = image_parser.parseImageDimensions(resized_image_data) catch |err| blk: {
+        std.io.getStdErr().writer().print("  Failed to parse resized image dimensions for {s}: {any}\n", .{ image_url, err }) catch {};
+        // Try parsing original image dimensions as fallback
+        break :blk image_parser.parseImageDimensions(original_image_data) catch json_output.ImageDimensions{ .width = 0, .height = 0 };
+    };
+
+    // Encode resized image as base64
+    const base64_data = try toBase64(allocator, resized_image_data);
+
+    std.io.getStdErr().writer().print("  Resized image {s}: original={d} bytes, resized={d} bytes, dimensions={}x{}\n", 
+        .{ image_url, original_image_data.len, resized_image_data.len, image_dims.width, image_dims.height }) catch {};
 
     return json_output.ImageData{
         .url = try allocator.dupe(u8, image_url),

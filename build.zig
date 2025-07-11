@@ -12,6 +12,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Add libvips dependency
+    exe.linkSystemLibrary("vips");
+    exe.linkSystemLibrary("glib-2.0");
+    exe.linkSystemLibrary("gobject-2.0");
+    exe.linkLibC();
+
     // Parallel version
     const parallel_exe = b.addExecutable(.{
         .name = "rss-cache-parser-parallel",
@@ -19,6 +25,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    // Add libvips dependency to parallel version
+    parallel_exe.linkSystemLibrary("vips");
+    parallel_exe.linkSystemLibrary("glib-2.0");
+    parallel_exe.linkSystemLibrary("gobject-2.0");
+    parallel_exe.linkLibC();
 
     b.installArtifact(exe);
     b.installArtifact(parallel_exe);
